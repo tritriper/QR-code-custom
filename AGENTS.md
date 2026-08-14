@@ -285,7 +285,8 @@ installer, c'est délibéré). Les vérifications faites lors du développement,
 ```bash
 npm run vendor      # régénère src/generated/qrcodegen.ts
 npm run typecheck   # tsc --noEmit, couvre src/ et web/
-npm run dev:web     # app web en local, rechargement automatique
+npm run dev:web     # app web en local (surveille main.ts ; relancer après
+                    # une modification de index.html ou style.css)
 npm run build:web   # produit site/, ce que GitHub Pages sert
 npx tsx src/cli.ts --url "https://collecti-frog.fr"   # génération de base
 ```
