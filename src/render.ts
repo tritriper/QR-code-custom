@@ -21,6 +21,21 @@ export interface RenderOpts {
   artworkContent?: string;
   /** viewBox du SVG source, au format "minX minY width height". */
   artworkViewBox?: string;
+  /**
+   * Part du côté de la zone de données occupée par le logo central. À la
+   * différence de `--art`, ce logo efface réellement les modules sous lui
+   * (voir `centerLogoMarginPx`) : contrairement à l'illustration `--art`, ce
+   * n'est pas sans risque, d'où un plafond conseillé autour de 30 %.
+   */
+  centerLogoScale: number;
+  /** Couleur du logo central. Par défaut, ses couleurs d'origine sont conservées. */
+  centerLogoColor?: string;
+  /** Marge claire entre le logo central et les modules autour, en px. */
+  centerLogoMarginPx: number;
+  /** Contenu interne du SVG source du logo central. */
+  centerLogoContent?: string;
+  /** viewBox du SVG source du logo central. */
+  centerLogoViewBox?: string;
 }
 
 export const DEFAULT_RENDER_OPTS: RenderOpts = {
@@ -31,6 +46,8 @@ export const DEFAULT_RENDER_OPTS: RenderOpts = {
   dotPx: 5,
   artworkScale: 1.4,
   artworkThickenPx: 1,
+  centerLogoScale: 0.24,
+  centerLogoMarginPx: 4,
 };
 
 /** Géométrie dérivée, en pixels utilisateur SVG. */
@@ -45,8 +62,8 @@ interface Layout {
   dataSidePx: number;
 }
 
-/** Illustration résolue : contenu brut, transformation de cadrage et boîte englobante. */
-interface Artwork {
+/** Une illustration résolue : contenu brut, transformation de cadrage et boîte englobante. */
+interface Overlay {
   content: string;
   transform: string;
   boxPx: Box;
@@ -61,6 +78,13 @@ interface Box {
   height: number;
 }
 
+/** Zone claire circulaire qui efface les modules sous le logo central. */
+interface Reserve {
+  cx: number;
+  cy: number;
+  r: number;
+}
+
 const INDENT = "  ";
 
 /**
@@ -70,6 +94,8 @@ const INDENT = "  ";
 export function renderQrSvg(modules: boolean[][], opts: RenderOpts): string {
   const layout = computeLayout(modules.length, opts);
   const artwork = resolveArtwork(layout, opts);
+  const centerLogo = resolveCenterLogo(layout, opts);
+  const reserve = centerLogo === null ? null : reserveOf(centerLogo, opts);
 
   const lines: string[] = [];
   lines.push(
@@ -78,25 +104,34 @@ export function renderQrSvg(modules: boolean[][], opts: RenderOpts): string {
   // L'ordre de composition ci-dessous est significatif : chaque couche recouvre les précédentes.
   if (artwork !== null) push(lines, maskDefs(layout, artwork, opts));
   push(lines, background(layout, opts));
-  push(lines, darkModules(modules, layout, opts));
+  push(lines, darkModules(modules, layout, opts, reserve));
   push(lines, finders(layout, opts));
   if (artwork !== null) {
-    push(lines, artworkGroup(artwork, opts.artworkColor ?? opts.darkColor, "art-", opts.artworkThickenPx));
+    push(lines, overlayGroup(artwork, opts.artworkColor ?? opts.darkColor, "art-", opts.artworkThickenPx));
     push(lines, lightModules(modules, layout, opts));
+  }
+  if (centerLogo !== null && reserve !== null) {
+    push(lines, centerLogoReserve(reserve, opts));
+    push(lines, overlayGroup(centerLogo, opts.centerLogoColor, "center-", 0));
   }
   lines.push(`</svg>`);
   return lines.join("\n") + "\n";
 }
 
 /**
- * Nombre de modules sombres dont le centre tombe dans la boîte englobante de
- * l'illustration. Heuristique de comparaison entre variantes de masque : plus
- * ce nombre est bas, moins l'illustration se bat visuellement avec le code.
+ * Nombre de modules sombres réellement perdus : ceux tombant dans la boîte
+ * englobante de l'illustration `--art` (heuristique, ce logo ne supprime
+ * aucun module — voir `renderQrSvg`) plus ceux effacés par la zone de
+ * réserve du logo central (compte exact, ce logo-là supprime vraiment des
+ * modules). Sert à classer les variantes de masque : plus ce nombre est bas,
+ * moins la lecture du QR est mise à l'épreuve.
  */
 export function countDarkModulesUnderArtwork(modules: boolean[][], opts: RenderOpts): number {
   const layout = computeLayout(modules.length, opts);
   const artwork = resolveArtwork(layout, opts);
-  if (artwork === null) return 0;
+  const centerLogo = resolveCenterLogo(layout, opts);
+  const reserve = centerLogo === null ? null : reserveOf(centerLogo, opts);
+  if (artwork === null && reserve === null) return 0;
 
   let count = 0;
   for (let y = 0; y < layout.size; y++) {
@@ -104,12 +139,14 @@ export function countDarkModulesUnderArtwork(modules: boolean[][], opts: RenderO
       if (!modules[y][x]) continue;
       const cx = centerPx(x, layout, opts);
       const cy = centerPx(y, layout, opts);
-      const inside =
+
+      const underArtwork =
+        artwork !== null &&
         cx >= artwork.boxPx.x &&
         cx <= artwork.boxPx.x + artwork.boxPx.width &&
         cy >= artwork.boxPx.y &&
         cy <= artwork.boxPx.y + artwork.boxPx.height;
-      if (inside) count++;
+      if (underArtwork || (reserve !== null && insideReserve(cx, cy, reserve))) count++;
     }
   }
   return count;
@@ -152,24 +189,46 @@ function parseViewBox(viewBox: string): Box {
   return { x: parts[0], y: parts[1], width: parts[2], height: parts[3] };
 }
 
-/** Met l'illustration à l'échelle et la centre sur la zone de données. */
-function resolveArtwork(layout: Layout, opts: RenderOpts): Artwork | null {
-  if (opts.artworkContent === undefined || opts.artworkViewBox === undefined) return null;
-
-  const source = parseViewBox(opts.artworkViewBox);
-  const scale = (layout.dataSidePx * opts.artworkScale) / Math.max(source.width, source.height);
+/** Met une illustration à l'échelle et la centre sur la zone de données. */
+function resolveOverlay(layout: Layout, content: string, viewBox: string, scaleRatio: number): Overlay {
+  const source = parseViewBox(viewBox);
+  const scale = (layout.dataSidePx * scaleRatio) / Math.max(source.width, source.height);
   const width = source.width * scale;
   const height = source.height * scale;
   const x = layout.dataOriginPx + (layout.dataSidePx - width) / 2;
   const y = layout.dataOriginPx + (layout.dataSidePx - height) / 2;
 
   return {
-    content: opts.artworkContent,
+    content,
     // Le décalage compense l'origine du viewBox source, qui n'est pas forcément (0, 0).
     transform: `translate(${num(x - source.x * scale)} ${num(y - source.y * scale)}) scale(${num(scale)})`,
     boxPx: { x, y, width, height },
     scale,
   };
+}
+
+function resolveArtwork(layout: Layout, opts: RenderOpts): Overlay | null {
+  if (opts.artworkContent === undefined || opts.artworkViewBox === undefined) return null;
+  return resolveOverlay(layout, opts.artworkContent, opts.artworkViewBox, opts.artworkScale);
+}
+
+function resolveCenterLogo(layout: Layout, opts: RenderOpts): Overlay | null {
+  if (opts.centerLogoContent === undefined || opts.centerLogoViewBox === undefined) return null;
+  return resolveOverlay(layout, opts.centerLogoContent, opts.centerLogoViewBox, opts.centerLogoScale);
+}
+
+/** Cercle couvrant le logo central plus sa marge, centré sur sa boîte englobante. */
+function reserveOf(centerLogo: Overlay, opts: RenderOpts): Reserve {
+  const { boxPx } = centerLogo;
+  return {
+    cx: boxPx.x + boxPx.width / 2,
+    cy: boxPx.y + boxPx.height / 2,
+    r: Math.max(boxPx.width, boxPx.height) / 2 + opts.centerLogoMarginPx,
+  };
+}
+
+function insideReserve(x: number, y: number, reserve: Reserve): boolean {
+  return Math.hypot(x - reserve.cx, y - reserve.cy) <= reserve.r;
 }
 
 /*---- Fragments SVG ----*/
@@ -180,12 +239,14 @@ function background(layout: Layout, opts: RenderOpts): string[] {
   ];
 }
 
-function darkModules(modules: boolean[][], layout: Layout, opts: RenderOpts): string[] {
+function darkModules(modules: boolean[][], layout: Layout, opts: RenderOpts, reserve: Reserve | null): string[] {
   const dots: string[] = [];
   for (let y = 0; y < layout.size; y++) {
     for (let x = 0; x < layout.size; x++) {
-      // Les motifs de détection sont redessinés stylisés, on les saute ici.
       if (!modules[y][x] || isFinderModule(x, y, layout.size)) continue;
+      // Le logo central efface réellement les modules dessous, pas seulement
+      // à l'écran : inutile de les dessiner.
+      if (reserve !== null && insideReserve(centerPx(x, layout, opts), centerPx(y, layout, opts), reserve)) continue;
       dots.push(dot(x, y, layout, opts));
     }
   }
@@ -233,7 +294,7 @@ function finders(layout: Layout, opts: RenderOpts): string[] {
   ];
 }
 
-function maskDefs(layout: Layout, artwork: Artwork, opts: RenderOpts): string[] {
+function maskDefs(layout: Layout, artwork: Overlay, opts: RenderOpts): string[] {
   const side = num(layout.sidePx);
   return [
     `<defs>`,
@@ -241,21 +302,28 @@ function maskDefs(layout: Layout, artwork: Artwork, opts: RenderOpts): string[] 
     // exprimé en fraction de la boîte de l'élément masqué, qui varie.
     `${INDENT}<mask id="art" maskUnits="userSpaceOnUse" x="0" y="0" width="${side}" height="${side}">`,
     `${INDENT}${INDENT}<rect x="0" y="0" width="${side}" height="${side}" fill="#000000"/>`,
-    ...indent(artworkGroup(artwork, "#ffffff", "mask-", opts.artworkThickenPx), 2),
+    ...indent(overlayGroup(artwork, "#ffffff", "mask-", opts.artworkThickenPx), 2),
     `${INDENT}</mask>`,
     `</defs>`,
   ];
 }
 
+/** Disque clair qui efface les modules sous le logo central, plus sa marge. */
+function centerLogoReserve(reserve: Reserve, opts: RenderOpts): string[] {
+  return [`<circle cx="${num(reserve.cx)}" cy="${num(reserve.cy)}" r="${num(reserve.r)}" fill="${opts.lightColor}"/>`];
+}
+
 /**
- * Une copie de l'illustration, recolorée et cadrée. `idPrefix` évite les
- * identifiants dupliqués entre les différentes copies. `strokePx` épaissit le
- * tracé en ajoutant un contour de la même couleur par-dessus le remplissage
- * existant, sans toucher aux tracés qui n'ont qu'un stroke (leur propre
- * épaisseur est conservée telle quelle).
+ * Une copie d'une illustration, cadrée et éventuellement recolorée.
+ * `idPrefix` évite les identifiants dupliqués entre les différentes copies.
+ * `color` recolore tous les tracés source si fourni, sinon leurs couleurs
+ * d'origine sont conservées. `strokePx` épaissit le tracé en ajoutant un
+ * contour de la même couleur par-dessus le remplissage existant, sans
+ * toucher aux tracés qui n'ont qu'un stroke (leur propre épaisseur est
+ * conservée telle quelle) ; ignoré si `color` est absent.
  */
-function artworkGroup(artwork: Artwork, color: string, idPrefix: string, strokePx: number): string[] {
-  const content = recolor(artwork.content, color);
+function overlayGroup(overlay: Overlay, color: string | undefined, idPrefix: string, strokePx: number): string[] {
+  const content = color === undefined ? overlay.content : recolor(overlay.content, color);
   const body = prefixIds(content, idPrefix)
     .split("\n")
     .map((line) => line.trim())
@@ -263,14 +331,14 @@ function artworkGroup(artwork: Artwork, color: string, idPrefix: string, strokeP
 
   // fill="none" reproduit la valeur par défaut portée par le <svg> source, dont
   // dépendent les tracés qui n'ont qu'un stroke.
-  const attrs = [`transform="${artwork.transform}"`, `fill="none"`];
-  if (strokePx > 0) {
+  const attrs = [`transform="${overlay.transform}"`, `fill="none"`];
+  if (strokePx > 0 && color !== undefined) {
     // Le trait est exprimé dans les unités du viewBox source, donc avant mise à l'échelle.
     // linejoin/linecap ronds évitent les becquets pointus aux jonctions des
     // petits détails (dents, iris) une fois le tracé épaissi.
     attrs.push(
       `stroke="${color}"`,
-      `stroke-width="${num(strokePx / artwork.scale)}"`,
+      `stroke-width="${num(strokePx / overlay.scale)}"`,
       `stroke-linejoin="round"`,
       `stroke-linecap="round"`,
     );
