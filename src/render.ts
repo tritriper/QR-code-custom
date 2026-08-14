@@ -9,10 +9,14 @@ export interface RenderOpts {
   modulePx: number;
   /** Marge silencieuse, en modules. Le standard QR en exige 4 au minimum. */
   quietZone: number;
-  /** Diamètre d'un point rapporté au pas de la grille. */
-  dotRatio: number;
+  /** Diamètre d'un point, en px. */
+  dotPx: number;
   /** Part du côté de la zone de données occupée par le plus grand côté de l'illustration. */
   artworkScale: number;
+  /** Couleur de l'illustration. Par défaut, celle des modules. */
+  artworkColor?: string;
+  /** Épaississement du trait de l'illustration, en px. 0 laisse le trait d'origine. */
+  artworkThickenPx: number;
   /** Contenu interne du SVG source (tout ce qui est entre <svg> et </svg>). */
   artworkContent?: string;
   /** viewBox du SVG source, au format "minX minY width height". */
@@ -20,12 +24,13 @@ export interface RenderOpts {
 }
 
 export const DEFAULT_RENDER_OPTS: RenderOpts = {
-  darkColor: "#12341f",
+  darkColor: "#000000",
   lightColor: "#ffffff",
   modulePx: 10,
-  quietZone: 4,
-  dotRatio: 0.8,
-  artworkScale: 0.8,
+  quietZone: 1,
+  dotPx: 5,
+  artworkScale: 1.4,
+  artworkThickenPx: 1,
 };
 
 /** Géométrie dérivée, en pixels utilisateur SVG. */
@@ -45,6 +50,8 @@ interface Artwork {
   content: string;
   transform: string;
   boxPx: Box;
+  /** Facteur d'échelle appliqué, pour convertir des épaisseurs en px vers les unités source. */
+  scale: number;
 }
 
 interface Box {
@@ -74,7 +81,7 @@ export function renderQrSvg(modules: boolean[][], opts: RenderOpts): string {
   push(lines, darkModules(modules, layout, opts));
   push(lines, finders(layout, opts));
   if (artwork !== null) {
-    push(lines, artworkGroup(artwork, opts.darkColor, "art-"));
+    push(lines, artworkGroup(artwork, opts.artworkColor ?? opts.darkColor, "art-", opts.artworkThickenPx));
     push(lines, lightModules(modules, layout, opts));
   }
   lines.push(`</svg>`);
@@ -161,6 +168,7 @@ function resolveArtwork(layout: Layout, opts: RenderOpts): Artwork | null {
     // Le décalage compense l'origine du viewBox source, qui n'est pas forcément (0, 0).
     transform: `translate(${num(x - source.x * scale)} ${num(y - source.y * scale)}) scale(${num(scale)})`,
     boxPx: { x, y, width, height },
+    scale,
   };
 }
 
@@ -198,8 +206,7 @@ function lightModules(modules: boolean[][], layout: Layout, opts: RenderOpts): s
 }
 
 function dot(x: number, y: number, layout: Layout, opts: RenderOpts): string {
-  const r = (opts.modulePx * opts.dotRatio) / 2;
-  return `<circle cx="${num(centerPx(x, layout, opts))}" cy="${num(centerPx(y, layout, opts))}" r="${num(r)}"/>`;
+  return `<circle cx="${num(centerPx(x, layout, opts))}" cy="${num(centerPx(y, layout, opts))}" r="${num(opts.dotPx / 2)}"/>`;
 }
 
 function finders(layout: Layout, opts: RenderOpts): string[] {
@@ -234,7 +241,7 @@ function maskDefs(layout: Layout, artwork: Artwork, opts: RenderOpts): string[] 
     // exprimé en fraction de la boîte de l'élément masqué, qui varie.
     `${INDENT}<mask id="art" maskUnits="userSpaceOnUse" x="0" y="0" width="${side}" height="${side}">`,
     `${INDENT}${INDENT}<rect x="0" y="0" width="${side}" height="${side}" fill="#000000"/>`,
-    ...indent(artworkGroup(artwork, "#ffffff", "mask-"), 2),
+    ...indent(artworkGroup(artwork, "#ffffff", "mask-", opts.artworkThickenPx), 2),
     `${INDENT}</mask>`,
     `</defs>`,
   ];
@@ -242,25 +249,42 @@ function maskDefs(layout: Layout, artwork: Artwork, opts: RenderOpts): string[] 
 
 /**
  * Une copie de l'illustration, recolorée et cadrée. `idPrefix` évite les
- * identifiants dupliqués entre la copie visible et celle du masque.
+ * identifiants dupliqués entre les différentes copies. `strokePx` épaissit le
+ * tracé en ajoutant un contour de la même couleur par-dessus le remplissage
+ * existant, sans toucher aux tracés qui n'ont qu'un stroke (leur propre
+ * épaisseur est conservée telle quelle).
  */
-function artworkGroup(artwork: Artwork, color: string, idPrefix: string): string[] {
-  const content = prefixIds(recolor(artwork.content, color), idPrefix);
-  const body = content
+function artworkGroup(artwork: Artwork, color: string, idPrefix: string, strokePx: number): string[] {
+  const content = recolor(artwork.content, color);
+  const body = prefixIds(content, idPrefix)
     .split("\n")
     .map((line) => line.trim())
     .filter((line) => line.length > 0);
+
   // fill="none" reproduit la valeur par défaut portée par le <svg> source, dont
   // dépendent les tracés qui n'ont qu'un stroke.
-  return group(`<g transform="${artwork.transform}" fill="none">`, body);
+  const attrs = [`transform="${artwork.transform}"`, `fill="none"`];
+  if (strokePx > 0) {
+    // Le trait est exprimé dans les unités du viewBox source, donc avant mise à l'échelle.
+    // linejoin/linecap ronds évitent les becquets pointus aux jonctions des
+    // petits détails (dents, iris) une fois le tracé épaissi.
+    attrs.push(
+      `stroke="${color}"`,
+      `stroke-width="${num(strokePx / artwork.scale)}"`,
+      `stroke-linejoin="round"`,
+      `stroke-linecap="round"`,
+    );
+  }
+  return group(`<g ${attrs.join(" ")}>`, body);
 }
 
 /**
- * Remplace les couleurs de tracé du SVG source. Seul le noir est visé : le
- * blanc sert aux masques internes de l'illustration et doit rester blanc.
+ * Remplace la couleur de tracé du SVG source, quelle qu'elle soit, par la
+ * couleur cible. Le blanc est laissé intact : il sert aux masques internes de
+ * l'illustration (ex. dents en creux), pas au dessin visible.
  */
 function recolor(content: string, color: string): string {
-  return content.replace(/(fill|stroke)="(?:black|#000|#000000)"/gi, `$1="${color}"`);
+  return content.replace(/(fill|stroke)="(?!none"|white")[^"]*"/gi, `$1="${color}"`);
 }
 
 /** Préfixe les identifiants et les références url(#...) d'un fragment SVG. */

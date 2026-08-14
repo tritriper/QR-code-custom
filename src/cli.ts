@@ -2,7 +2,7 @@
  * Entrée CLI. Seul module à effets de bord : lecture de l'illustration,
  * écriture des SVG, affichage du récapitulatif.
  *
- *   npx tsx src/cli.ts --url "https://collecti-frog.fr" --art art/CF-Logo-Black-Trans.svg --out dist/
+ *   npx tsx src/cli.ts --url "https://collecti-frog.fr" --out dist/
  */
 
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -17,13 +17,39 @@ interface Options {
   art: string;
   out: string;
   upper: boolean;
-  artScale: number;
+  /** Zoom de l'illustration en pourcentage de la zone de données. */
+  artScalePercent: number;
+  /** Nombre de variantes de masque à écrire, les meilleures d'abord. */
+  count: number;
+  thicken: number;
+  artColor: string;
+  /** Couleur des modules et des motifs de détection. */
+  color: string;
+  /** Diamètre d'un point, en px. */
+  dotSize: number;
 }
+
+/** SVG de l'association, à jour dans la charte : trait vert foncé. */
+const DEFAULT_ART = "art/CF-Logo-VertFonce-Trans.svg";
+/** Couleur de l'illustration par défaut : vert foncé de la charte Collecti'FROG. */
+const DEFAULT_ART_COLOR = "#12341f";
 
 interface Artwork {
   content: string;
   viewBox: string;
 }
+
+/** Une des 8 variantes de masque du même contenu. */
+interface Variant {
+  mask: number;
+  version: number;
+  size: number;
+  svg: string;
+  /** Modules sombres sous l'illustration : plus c'est bas, plus le logo ressort. */
+  collisions: number;
+}
+
+const MASK_COUNT = 8;
 
 function main(): void {
   const opts = parseOptions();
@@ -32,48 +58,136 @@ function main(): void {
 
   const renderOpts: RenderOpts = {
     ...DEFAULT_RENDER_OPTS,
-    artworkScale: opts.artScale,
+    darkColor: opts.color,
+    dotPx: opts.dotSize,
+    artworkScale: opts.artScalePercent / 100,
+    artworkThickenPx: opts.thicken,
+    artworkColor: opts.artColor,
     artworkContent: artwork.content,
     artworkViewBox: artwork.viewBox,
   };
 
-  mkdirSync(opts.out, { recursive: true });
-  console.log(`URL encodée : ${text}`);
+  // Les 8 masques sont toujours évalués : c'est ce qui permet de classer les
+  // variantes. Seules les `count` meilleures sont écrites sur disque.
+  const variants = buildVariants(text, renderOpts);
+  const ranked = [...variants].sort((a, b) => a.collisions - b.collisions);
+  const chosen = new Set(ranked.slice(0, opts.count).map((variant) => variant.mask));
 
-  for (let mask = 0; mask < 8; mask++) {
+  mkdirSync(opts.out, { recursive: true });
+  console.log(`URL encodée : ${text} — illustration à ${opts.artScalePercent} %`);
+
+  for (const variant of variants) {
+    const summary = `masque ${variant.mask} → version ${variant.version} (${variant.size}×${variant.size}), ${variant.collisions} modules sombres sous l'illustration`;
+    if (!chosen.has(variant.mask)) {
+      console.log(`     ${summary}`);
+      continue;
+    }
+    const file = join(opts.out, `qr-mask${variant.mask}.svg`);
+    writeFileSync(file, variant.svg, "utf8");
+    console.log(`  ✓  ${summary} → ${file}`);
+  }
+}
+
+function buildVariants(text: string, renderOpts: RenderOpts): Variant[] {
+  const variants: Variant[] = [];
+  for (let mask = 0; mask < MASK_COUNT; mask++) {
     const segments = qrcodegen.QrSegment.makeSegments(text);
     const qr = qrcodegen.QrCode.encodeSegments(segments, qrcodegen.QrCode.Ecc.HIGH, 1, 40, mask, true);
     const modules = toMatrix(qr);
-
-    const file = join(opts.out, `qr-mask${mask}.svg`);
-    writeFileSync(file, renderQrSvg(modules, renderOpts), "utf8");
-
-    const collisions = countDarkModulesUnderArtwork(modules, renderOpts);
-    console.log(`  masque ${mask} → version ${qr.version} (${qr.size}×${qr.size}), ${collisions} modules sombres sous l'illustration → ${file}`);
+    variants.push({
+      mask,
+      version: qr.version,
+      size: qr.size,
+      svg: renderQrSvg(modules, renderOpts),
+      collisions: countDarkModulesUnderArtwork(modules, renderOpts),
+    });
   }
+  return variants;
 }
 
 function parseOptions(): Options {
   const { values } = parseArgs({
     options: {
       url: { type: "string" },
-      art: { type: "string" },
+      art: { type: "string", default: DEFAULT_ART },
       out: { type: "string", default: "dist/" },
       upper: { type: "boolean", default: false },
-      "art-scale": { type: "string", default: String(DEFAULT_RENDER_OPTS.artworkScale) },
+      "art-scale": { type: "string", default: String(DEFAULT_RENDER_OPTS.artworkScale * 100) },
+      count: { type: "string", default: "8" },
+      thicken: { type: "string", default: String(DEFAULT_RENDER_OPTS.artworkThickenPx) },
+      "art-color": { type: "string", default: DEFAULT_ART_COLOR },
+      color: { type: "string", default: DEFAULT_RENDER_OPTS.darkColor },
+      "dot-size": { type: "string", default: String(DEFAULT_RENDER_OPTS.dotPx) },
     },
   });
 
-  if (values.url === undefined || values.art === undefined) {
-    throw new Error('Usage : --url "<URL>" --art <fichier.svg> [--out dist/] [--upper] [--art-scale 0.42]');
+  if (values.url === undefined) {
+    throw new Error(
+      'Usage : --url "<URL>" [--art <fichier.svg>] [--out dist/] [--upper]\n' +
+        '        [--art-scale 140] [--count 8] [--thicken 1] [--art-color "#12341f"]\n' +
+        '        [--color "#000000"] [--dot-size 5]',
+    );
   }
 
-  const artScale = Number(values["art-scale"]);
-  if (!Number.isFinite(artScale) || artScale <= 0 || artScale > 1) {
-    throw new Error(`--art-scale doit être un nombre dans ]0, 1], reçu "${values["art-scale"]}"`);
+  const artScalePercent = number(values["art-scale"], "--art-scale");
+  if (artScalePercent <= 0 || artScalePercent > 200) {
+    throw new Error(`--art-scale doit être un pourcentage dans ]0, 200], reçu "${values["art-scale"]}"`);
+  }
+  if (artScalePercent > 100) {
+    // Au-delà de 100 % l'illustration déborde sur la marge silencieuse, dont
+    // les lecteurs ont besoin pour cadrer le symbole.
+    console.warn(`Attention : à ${artScalePercent} % l'illustration déborde de la zone de données, vérifie le décodage.`);
   }
 
-  return { url: values.url, art: values.art, out: values.out, upper: values.upper, artScale };
+  const count = number(values.count, "--count");
+  if (!Number.isInteger(count) || count < 1 || count > MASK_COUNT) {
+    throw new Error(`--count doit être un entier entre 1 et ${MASK_COUNT}, reçu "${values.count}"`);
+  }
+
+  const thicken = number(values.thicken, "--thicken");
+  if (thicken < 0) {
+    throw new Error("--thicken doit être positif ou nul");
+  }
+
+  const artColor = values["art-color"];
+  if (!isCssColor(artColor)) {
+    throw new Error(`--art-color doit être une couleur CSS, reçu "${artColor}"`);
+  }
+
+  const color = values.color;
+  if (!isCssColor(color)) {
+    throw new Error(`--color doit être une couleur CSS, reçu "${color}"`);
+  }
+
+  const dotSize = number(values["dot-size"], "--dot-size");
+  if (dotSize <= 0) {
+    throw new Error(`--dot-size doit être strictement positif, reçu "${values["dot-size"]}"`);
+  }
+
+  return {
+    url: values.url,
+    art: values.art,
+    out: values.out,
+    upper: values.upper,
+    artScalePercent,
+    count,
+    thicken,
+    artColor,
+    color,
+    dotSize,
+  };
+}
+
+function isCssColor(value: string): boolean {
+  return /^(#[0-9a-f]{3,8}|[a-z]+)$/i.test(value);
+}
+
+function number(raw: string, flag: string): number {
+  const value = Number(raw);
+  if (!Number.isFinite(value)) {
+    throw new Error(`${flag} doit être un nombre, reçu "${raw}"`);
+  }
+  return value;
 }
 
 /**
@@ -125,4 +239,9 @@ function toMatrix(qr: qrcodegen.QrCode): boolean[][] {
   return matrix;
 }
 
-main();
+try {
+  main();
+} catch (error) {
+  console.error(error instanceof Error ? error.message : String(error));
+  process.exit(1);
+}
