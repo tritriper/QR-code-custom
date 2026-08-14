@@ -6,10 +6,13 @@
   "scripts": {
     "vendor": "mkdir -p src/generated && { cat vendor/qrcodegen/typescript-javascript/qrcodegen.ts; echo; echo 'export default qrcodegen;'; } > src/generated/qrcodegen.ts",
     "prepare": "npm run vendor",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "build:web": "npm run vendor && esbuild web/main.ts --bundle --minify --format=esm --outfile=site/app.js && cp web/index.html web/style.css site/ && cp -r art site/",
+    "dev:web": "npm run vendor && esbuild web/main.ts --bundle --format=esm --outfile=site/app.js --servedir=site --watch"
   },
   "devDependencies": {
     "@types/node": "^22.20.1",
+    "esbuild": "^0.28.2",
     "tsx": "^4.19.0",
     "typescript": "^5.6.0"
   }
