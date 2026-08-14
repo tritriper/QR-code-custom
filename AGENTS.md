@@ -15,18 +15,25 @@ lisibilité, y compris au prix de duplication mineure plutôt que d'une
 abstraction prématurée. Trois lignes similaires valent mieux qu'un mauvais
 générique.
 
+L'outil a deux entrées qui doivent produire exactement la même chose : un CLI
+et une application web statique (hébergée sur GitHub Pages).
+
 Contraintes qui restent valables pour tout ajout futur :
 - TypeScript strict, types explicites, jamais de `any`.
-- `src/render.ts` : uniquement des fonctions pures (matrice + config → SVG).
-  Aucune E/S, aucun accès au système de fichiers.
-- `src/cli.ts` : seul endroit avec des effets de bord (lecture de fichiers,
-  écriture, `console.log`).
+- `src/render.ts` et `src/qr.ts` : uniquement des fonctions pures. Aucune E/S,
+  aucun accès au système de fichiers, aucun `console`, aucun DOM.
+- `src/cli.ts` et `web/main.ts` : les deux seuls endroits avec des effets de
+  bord, chacun pour son environnement. Rien de partageable ne doit y rester —
+  ça part dans `src/qr.ts`.
 - Commentaires en français, uniquement quand le *pourquoi* n'est pas évident
   (jamais pour redire ce que le code dit déjà).
-- Aucune dépendance runtime. `tsx` pour exécuter, `typescript`/`@types/node`
-  pour `npm run typecheck`.
+- Aucune dépendance runtime. `tsx` pour exécuter, `esbuild` pour bundler le
+  web, `typescript`/`@types/node` pour `npm run typecheck`.
 - Le SVG produit doit rester indenté et lisible : il est prévu pour être
   retouché à la main.
+- Aucune fonctionnalité qui ne serait disponible que d'un côté : ajouter une
+  option au CLI sans l'exposer dans l'app web (ou l'inverse) donnerait deux
+  outils différents. Le tableau des options du README fait foi pour les deux.
 
 ## Le submodule qrcodegen — piège à connaître
 
@@ -59,10 +66,24 @@ lancer `npm run vendor`.
 | Fichier | Rôle |
 | --- | --- |
 | `src/render.ts` | Matrice booléenne (`boolean[][]`) + `RenderOpts` → chaîne SVG. Fonctions pures. |
-| `src/cli.ts` | Parsing des arguments, lecture de l'illustration, appel à `qrcodegen`, écriture des fichiers. |
+| `src/qr.ts` | Encodage des 8 masques, parsing d'un SVG source, `--upper`. Fonctions pures, partagées par les deux entrées. |
+| `src/cli.ts` | Entrée terminal : arguments, lecture/écriture de fichiers, `console`. |
+| `web/main.ts` | Entrée navigateur : DOM, fichier déposé, téléchargement. |
+| `web/index.html`, `web/style.css` | Structure et habillage de l'app web. |
 | `vendor/qrcodegen/` | Submodule, intact. |
 | `src/generated/` | Généré par `npm run vendor`, gitignoré. |
+| `site/` | Sortie de `npm run build:web`, gitignorée. Jamais commitée. |
 | `art/` | Fichiers `.svg` des logos (charte Collecti'FROG). |
+
+### Séparation encodage / rendu
+
+`buildVariants()` encode les 8 masques et calcule leurs collisions ;
+`renderVariant()` construit le SVG d'une variante. Les deux sont séparés parce
+que le rendu coûte cher (le logo source est recopié jusqu'à 3 fois dans la
+chaîne produite) alors que le classement des masques n'a besoin que du compte
+de collisions. Le CLI ne rend donc que les `--count` variantes écrites, et
+l'app web ne rend que celle affichée. Ne pas refusionner les deux : à chaque
+frappe clavier, l'app reconstruirait 8 SVG dont 7 jetés.
 
 ### Ordre de composition du SVG (`renderQrSvg`)
 
@@ -143,14 +164,19 @@ défaut). Le niveau de correction d'erreur est toujours `Ecc.HIGH`, en dur.
 
 Voir le tableau du [README.md](README.md#personnaliser-le-rendu) pour la
 description utilisateur. Côté code, chaque flag CLI (`kebab-case`) alimente un
-champ de `RenderOpts` (`camelCase`) dans `main()` — les deux fichiers doivent
-rester synchronisés si l'un des deux change. `--spacing` alimente `modulePx`
+champ de `RenderOpts` (`camelCase`) dans `main()`, et son contrôle de l'app web
+fait de même dans `renderOpts()` — les trois doivent rester synchronisés si
+l'un d'eux change. `--spacing` alimente `modulePx`
 (pas de la grille, en px) : comme il fixe l'unité de base de toute la
 géométrie, il redimensionne le SVG entier (positions, finders, marge
 silencieuse) plutôt que de ne toucher qu'à l'espace entre les points — c'est
 son rôle, distinct de `--dot-size` (diamètre d'un point) qui n'affecte que le
 rayon des cercles. `quietZone` (marge silencieuse, en modules) reste **pas**
 exposée en CLI, réglée en dur dans `DEFAULT_RENDER_OPTS`.
+
+Le **SVG est le seul format de logo accepté**, des deux côtés. Ce n'est pas un
+oubli : voir [improvement.md](improvement.md) pour ce que coûterait le
+support du raster, style par style.
 
 ## Décisions historiques (pour éviter de refaire les mêmes essais)
 
@@ -203,10 +229,64 @@ Après tout changement de `RenderOpts` ou des options CLI, lancer aussi :
 npm run typecheck
 ```
 
+## L'application web
+
+Vanilla TS + DOM, bundlé par esbuild en un seul fichier (~22 ko). Pas de
+framework, pas de dépendance runtime, aucun appel réseau une fois la page
+chargée : tout tourne côté client, le logo de l'utilisateur ne part nulle
+part.
+
+- **L'état de l'interface n'est pas dupliqué** dans une structure à part : il
+  est relu depuis les contrôles du formulaire à chaque rendu (`renderOpts()`).
+  Seuls le logo déposé et la variante affichée, qui ne correspondent à aucun
+  champ, vivent en variables de module. Ne pas introduire de store : il n'y a
+  rien à synchroniser.
+- **Les deux overlays deviennent un choix à trois positions** (`logo intégré`
+  / `logo au centre` / `sans logo`). Le CLI permet de les cumuler, l'app non :
+  c'est visuellement chargé et ça n'a jamais servi. Les réglages sans objet
+  dans le style choisi sont masqués via `[data-modes]` sur l'élément et
+  `showRows()`.
+- **Les avertissements sont dupliqués** entre `parseOptions()` (CLI) et
+  `warnings()` (web), seuils compris. Volontaire : ce sont des textes destinés
+  à deux publics différents. Si un seuil bouge, les deux doivent bouger.
+  Conséquence assumée : le défaut « logo intégré à 140 % » affiche un
+  avertissement dès l'ouverture de la page, exactement comme le CLI avec ses
+  propres défauts.
+- **Un jeton de rendu** (`renderToken`) empêche qu'un rendu lancé avant un
+  autre écrase son résultat au retour du `await` de chargement du logo.
+- **Chemins relatifs obligatoires** dans `index.html` et dans les `fetch()` :
+  le site est servi sous `https://tritriper.github.io/QR-code-custom/`, un
+  chemin absolu (`/app.js`) pointerait à la racine du domaine.
+
+### Déploiement
+
+`.github/workflows/pages.yml` construit et publie à chaque push sur `main`.
+Rien de généré n'est commité. Deux choses à savoir :
+
+- `actions/checkout` doit avoir `submodules: recursive`, sinon `npm run
+  vendor` produit un fichier vide (voir le piège plus haut) ;
+- côté dépôt, *Settings → Pages → Source* doit être réglé sur **GitHub
+  Actions**, pas sur « Deploy from a branch ». C'est le seul réglage manuel.
+
+## Vérifier l'app web
+
+Il n'y a pas de framework de test dans le projet (aucune dépendance de test à
+installer, c'est délibéré). Les vérifications faites lors du développement,
+à refaire de la même façon si l'app change sérieusement :
+
+1. `npm run dev:web`, puis à l'œil : rendu neumorphism, bascule entre les
+   trois styles, dépôt d'un logo, défilement des variantes.
+2. Le protocole de décodage ci-dessus, mais sur des SVG **exportés depuis
+   l'app** plutôt que depuis le CLI — c'est le même `render.ts`, mais les
+   options y arrivent par un autre chemin.
+
 ## Commandes utiles
 
 ```bash
 npm run vendor      # régénère src/generated/qrcodegen.ts
-npm run typecheck   # tsc --noEmit
+npm run typecheck   # tsc --noEmit, couvre src/ et web/
+npm run dev:web     # app web en local (surveille main.ts ; relancer après
+                    # une modification de index.html ou style.css)
+npm run build:web   # produit site/, ce que GitHub Pages sert
 npx tsx src/cli.ts --url "https://collecti-frog.fr"   # génération de base
 ```

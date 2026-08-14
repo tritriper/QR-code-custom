@@ -2,8 +2,12 @@
 
 Cet outil crée des QR codes personnalisés : points ronds, coins arrondis, avec un logo affiché par-dessus.
 
-Il fonctionne depuis un terminal (une fenêtre où l'on tape des commandes).
-Pas d'installation d'application, pas de compte à créer.
+Il existe en deux versions, qui produisent exactement la même chose :
+
+- **[l'application web](https://tritriper.github.io/QR-code-custom/)** — rien à
+  installer, ça se passe dans le navigateur ;
+- **le programme en ligne de commande**, pour qui préfère le terminal ou veut
+  automatiser (voir plus bas).
 
 Ce projet utilise le generateur de QRCode [nayuki/QR-Code-generator](https://github.com/nayuki/QR-Code-generator)
 
@@ -11,14 +15,35 @@ Ce projet utilise le generateur de QRCode [nayuki/QR-Code-generator](https://git
 <img src="exemple/artwork.svg" alt="artwork" width="200"/>
 <img src="exemple/center-logo.svg" alt="center-logo" width="200"/>
 
-## Installation (à faire une seule fois)
+## L'application web
 
-### Solution 1 (non testé, peut manquer des deps)
+Ouvre **<https://tritriper.github.io/QR-code-custom/>**, puis :
+
+1. saisis l'adresse à encoder ;
+2. choisis un style : *logo intégré* (le logo est dessiné par-dessus les
+   points), *logo au centre* (posé sur une pastille claire) ou *sans logo* ;
+3. charge ton logo si tu ne veux pas celui de Collecti'FROG (**format `.svg`
+   uniquement**), et règle couleurs, tailles et espacement ;
+4. fais défiler les 8 variantes, classées de la plus lisible à la moins
+   lisible, et télécharge celle qui te plaît.
+
+Rien n'est envoyé sur Internet : ton logo ne quitte pas ton ordinateur, tout
+le calcul se fait dans le navigateur.
+
+**Avant d'utiliser le QR code obtenu, scanne-le avec l'appareil photo de ton
+téléphone** pour vérifier qu'il ouvre bien le bon lien. C'est valable pour les
+deux versions de l'outil.
+
+## Le programme en ligne de commande
+
+### Installation (à faire une seule fois)
+
+#### Solution 1 (non testé, peut manquer des deps)
 1. Installer npm 
 2. Télécharger le code du repository
 3. Ouvrir un terminal de commande dans le dossier du repository
 
-### Solution 2 (mode developpeur)
+#### Solution 2 (mode developpeur)
 
 Si tu as VS Code et docker :
 1. Télécharge le code du repository
@@ -32,7 +57,7 @@ Si tu n'as pas cette notification, ouvre la palette de commandes
 (`Ctrl+Maj+P` ou `Cmd+Maj+P` sur Mac) et cherche *Dev Containers: Reopen in
 Container*.
 
-## Générer un QR code
+### Générer un QR code
 
 Dans le terminal :
 
@@ -50,12 +75,12 @@ Le terminal affiche un petit résumé pour chacune ; celle avec le moins de
 Chaque fichier `.svg` peut être ouvert dans un navigateur, importé dans Canva,
 Illustrator, Figma, ou converti en PNG/JPEG avec n'importe quel outil en ligne.
 
-### Vérifier que le QR code fonctionne
+#### Vérifier que le QR code fonctionne
 
 Avant de l'utiliser, scanne-le avec l'appareil photo de ton téléphone (comme
 pour scanner un QR code normal). S'il ouvre bien le bon lien, c'est bon.
 
-## Personnaliser le rendu
+### Personnaliser le rendu
 
 Toutes ces options se rajoutent à la suite de la commande de base. Par
 exemple, pour un QR code avec des points plus gros :
@@ -99,7 +124,7 @@ npx tsx src/cli.ts --url "https://collecti-frog.fr" --spacing 16
 npx tsx src/cli.ts --url "https://collecti-frog.fr" --spacing 6
 ```
 
-### Utiliser un autre logo
+#### Utiliser un autre logo
 
 Remplace `--art` par le chemin vers ton propre fichier `.svg` :
 
@@ -109,7 +134,7 @@ npx tsx src/cli.ts --url "https://collecti-frog.fr" --art art/mon-logo.svg
 
 Le logo doit être un fichier `.svg` (pas un `.png` ni un `.jpg`).
 
-### Logo rond au centre
+#### Logo rond au centre
 
 Il existe une deuxième façon d'afficher un logo : au centre du QR code, dans
 un petit badge rond, plutôt qu'intégré aux points. C'est le style utilisé sur
@@ -143,7 +168,7 @@ pas seulement le badge rond fourni :
 npx tsx src/cli.ts --url "https://collecti-frog.fr" --no-art --center-logo art/mon-badge.svg
 ```
 
-### Les deux exemples, côte à côte
+#### Les deux exemples, côte à côte
 
 Dans les deux modes — le logo intégré aux points (celui de base) et le badge
 rond au centre — c'est toujours le même principe : le nom de ton fichier
@@ -177,6 +202,14 @@ couleur simple en anglais (`"red"`, `"green"`…).
 **Rien ne se passe / erreur `command not found`** — vérifie que tu es bien
 dans le terminal du conteneur VS Code (voir *Installation* ci-dessus), pas
 dans un terminal classique.
+
+**Sur l'application web : « … n'est pas un fichier SVG »** — seul le format
+`.svg` fonctionne pour l'instant (un PNG ou un JPEG ne peut pas être intégré
+au QR code de cette façon). Demande le logo en `.svg` à qui l'a dessiné, ou
+convertis-le avec un outil en ligne.
+
+**Sur l'application web : rien ne s'affiche** — l'aperçu a besoin de
+JavaScript ; vérifie qu'il n'est pas bloqué par une extension du navigateur.
 
 ---
 
