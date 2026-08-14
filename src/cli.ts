@@ -27,6 +27,16 @@ interface Options {
   color: string;
   /** Diamètre d'un point, en px. */
   dotSize: number;
+  /** Distance entre les centres de deux points voisins, en px. */
+  spacing: number;
+  /** Désactive l'illustration --art (silhouette intégrée aux points). */
+  noArt: boolean;
+  /** Chemin du logo à afficher au centre, ou undefined pour ne pas en afficher. */
+  centerLogo: string | undefined;
+  /** Zoom du logo central en pourcentage de la zone de données. */
+  centerLogoScalePercent: number;
+  /** Couleur du logo central, ou undefined pour garder ses couleurs d'origine. */
+  centerLogoColor: string | undefined;
 }
 
 /** SVG de l'association, à jour dans la charte : trait vert foncé. */
@@ -34,7 +44,7 @@ const DEFAULT_ART = "art/CF-Logo-VertFonce-Trans.svg";
 /** Couleur de l'illustration par défaut : vert foncé de la charte Collecti'FROG. */
 const DEFAULT_ART_COLOR = "#12341f";
 
-interface Artwork {
+interface SvgFile {
   content: string;
   viewBox: string;
 }
@@ -53,18 +63,24 @@ const MASK_COUNT = 8;
 
 function main(): void {
   const opts = parseOptions();
-  const artwork = readArtwork(opts.art);
+  const artwork = opts.noArt ? undefined : readSvg(opts.art);
+  const centerLogo = opts.centerLogo === undefined ? undefined : readSvg(opts.centerLogo);
   const text = opts.upper ? toUpperUrl(opts.url) : opts.url;
 
   const renderOpts: RenderOpts = {
     ...DEFAULT_RENDER_OPTS,
     darkColor: opts.color,
     dotPx: opts.dotSize,
+    modulePx: opts.spacing,
     artworkScale: opts.artScalePercent / 100,
     artworkThickenPx: opts.thicken,
     artworkColor: opts.artColor,
-    artworkContent: artwork.content,
-    artworkViewBox: artwork.viewBox,
+    artworkContent: artwork?.content,
+    artworkViewBox: artwork?.viewBox,
+    centerLogoScale: opts.centerLogoScalePercent / 100,
+    centerLogoColor: opts.centerLogoColor,
+    centerLogoContent: centerLogo?.content,
+    centerLogoViewBox: centerLogo?.viewBox,
   };
 
   // Les 8 masques sont toujours évalués : c'est ce qui permet de classer les
@@ -74,10 +90,16 @@ function main(): void {
   const chosen = new Set(ranked.slice(0, opts.count).map((variant) => variant.mask));
 
   mkdirSync(opts.out, { recursive: true });
-  console.log(`URL encodée : ${text} — illustration à ${opts.artScalePercent} %`);
+  const summaryHeader = [
+    artwork !== undefined ? `illustration à ${opts.artScalePercent} %` : null,
+    centerLogo !== undefined ? `logo central à ${opts.centerLogoScalePercent} %` : null,
+  ]
+    .filter((part) => part !== null)
+    .join(", ");
+  console.log(`URL encodée : ${text}${summaryHeader === "" ? "" : ` — ${summaryHeader}`}`);
 
   for (const variant of variants) {
-    const summary = `masque ${variant.mask} → version ${variant.version} (${variant.size}×${variant.size}), ${variant.collisions} modules sombres sous l'illustration`;
+    const summary = `masque ${variant.mask} → version ${variant.version} (${variant.size}×${variant.size}), ${variant.collisions} modules sombres concernés`;
     if (!chosen.has(variant.mask)) {
       console.log(`     ${summary}`);
       continue;
@@ -118,6 +140,11 @@ function parseOptions(): Options {
       "art-color": { type: "string", default: DEFAULT_ART_COLOR },
       color: { type: "string", default: DEFAULT_RENDER_OPTS.darkColor },
       "dot-size": { type: "string", default: String(DEFAULT_RENDER_OPTS.dotPx) },
+      spacing: { type: "string", default: String(DEFAULT_RENDER_OPTS.modulePx) },
+      "no-art": { type: "boolean", default: false },
+      "center-logo": { type: "string" },
+      "center-logo-scale": { type: "string", default: String(DEFAULT_RENDER_OPTS.centerLogoScale * 100) },
+      "center-logo-color": { type: "string" },
     },
   });
 
@@ -125,7 +152,8 @@ function parseOptions(): Options {
     throw new Error(
       'Usage : --url "<URL>" [--art <fichier.svg>] [--out dist/] [--upper]\n' +
         '        [--art-scale 140] [--count 8] [--thicken 1] [--art-color "#12341f"]\n' +
-        '        [--color "#000000"] [--dot-size 5]',
+        '        [--color "#000000"] [--dot-size 5] [--spacing 10] [--no-art]\n' +
+        '        [--center-logo <fichier.svg>] [--center-logo-scale 24] [--center-logo-color "#000"]',
     );
   }
 
@@ -133,7 +161,7 @@ function parseOptions(): Options {
   if (artScalePercent <= 0 || artScalePercent > 200) {
     throw new Error(`--art-scale doit être un pourcentage dans ]0, 200], reçu "${values["art-scale"]}"`);
   }
-  if (artScalePercent > 100) {
+  if (artScalePercent > 100 && !values["no-art"]) {
     // Au-delà de 100 % l'illustration déborde sur la marge silencieuse, dont
     // les lecteurs ont besoin pour cadrer le symbole.
     console.warn(`Attention : à ${artScalePercent} % l'illustration déborde de la zone de données, vérifie le décodage.`);
@@ -164,6 +192,31 @@ function parseOptions(): Options {
     throw new Error(`--dot-size doit être strictement positif, reçu "${values["dot-size"]}"`);
   }
 
+  const spacing = number(values.spacing, "--spacing");
+  if (spacing <= 0) {
+    throw new Error(`--spacing doit être strictement positif, reçu "${values.spacing}"`);
+  }
+
+  const centerLogoScalePercent = number(values["center-logo-scale"], "--center-logo-scale");
+  if (centerLogoScalePercent <= 0 || centerLogoScalePercent > 40) {
+    throw new Error(
+      `--center-logo-scale doit être un pourcentage dans ]0, 40], reçu "${values["center-logo-scale"]}"`,
+    );
+  }
+  if (centerLogoScalePercent > 30 && values["center-logo"] !== undefined) {
+    // Contrairement à --art-scale, ce logo efface réellement les modules
+    // dessous : au-delà d'environ 30 % la correction d'erreur du QR ne
+    // suffit plus toujours à compenser.
+    console.warn(
+      `Attention : à ${centerLogoScalePercent} % le logo central efface une grande zone du QR, vérifie le décodage.`,
+    );
+  }
+
+  const centerLogoColor = values["center-logo-color"];
+  if (centerLogoColor !== undefined && !isCssColor(centerLogoColor)) {
+    throw new Error(`--center-logo-color doit être une couleur CSS, reçu "${centerLogoColor}"`);
+  }
+
   return {
     url: values.url,
     art: values.art,
@@ -175,6 +228,11 @@ function parseOptions(): Options {
     artColor,
     color,
     dotSize,
+    spacing,
+    noArt: values["no-art"],
+    centerLogo: values["center-logo"],
+    centerLogoScalePercent,
+    centerLogoColor,
   };
 }
 
@@ -209,8 +267,8 @@ function toUpperUrl(url: string): string {
   return upper;
 }
 
-/** Extrait le viewBox et le contenu interne du SVG de l'illustration. */
-function readArtwork(path: string): Artwork {
+/** Extrait le viewBox et le contenu interne d'un fichier SVG. */
+function readSvg(path: string): SvgFile {
   const source = readFileSync(path, "utf8");
 
   const viewBox = /<svg[^>]*\sviewBox="([^"]+)"/i.exec(source)?.[1];

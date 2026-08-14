@@ -85,24 +85,72 @@ Les modules restent tous dessinés ; l'illustration est peinte par-dessus. Ne
 pas casser cette propriété sans le signaler clairement — c'est un invariant
 que le README promet implicitement (« sans jamais rendre le code illisible »).
 
+### Logo central (`--center-logo`) — comportement différent de `--art`
+
+Deuxième style, indépendant du premier : un logo posé au centre du QR sur un
+disque clair qui **efface réellement** les modules dessous
+(`darkModules()` saute les modules dont le centre tombe dans le rayon de
+réserve — voir `Reserve`/`insideReserve()`/`reserveOf()` dans `render.ts`).
+C'est la technique standard des « QR + logo au centre » : elle s'appuie sur
+la correction d'erreur (toujours `Ecc.HIGH`) pour rester lisible malgré la
+perte. Contrairement à `--art`, ce n'est **pas** sans risque — d'où :
+
+- un plafond dur à 40 % (`--center-logo-scale`), un avertissement au-delà de
+  30 %, calibrés empiriquement (voir plus bas) ;
+- une réserve **circulaire uniquement** (pas de forme rectangulaire) : plus
+  petite qu'un carré englobant à taille égale, donc moins destructrice, et
+  adaptée au badge rond fourni. Un futur logo non circulaire nécessiterait de
+  revoir cette géométrie (actuellement en dur, volontairement — pas
+  d'abstraction pour un besoin qui n'existe pas encore) ;
+- `--no-art` pour désactiver l'overlay `--art` par défaut et n'avoir que le
+  badge central (sinon les deux se superposent — testé, ça fonctionne mais
+  c'est visuellement chargé, deux visages de grenouille se chevauchent).
+
+`resolveOverlay()` est partagé entre `--art` et `--center-logo` (même
+géométrie de cadrage : mise à l'échelle sur le plus grand côté du viewBox
+source, centrage sur la zone de données). `overlayGroup()` (ex-`artworkGroup`)
+aussi, avec une différence : pour le logo central, `color` peut être
+`undefined`, auquel cas ses couleurs d'origine sont conservées sans passer
+par `recolor()` — contrairement à `--art` où une couleur est toujours
+appliquée (celle des modules par défaut).
+
+`countDarkModulesUnderArtwork` (nom conservé tel quel malgré l'ajout du logo
+central, pour limiter le diff) additionne maintenant deux choses de nature
+différente : le compte heuristique (bbox) de `--art`, et le compte exact
+(cercle de réserve) du logo central. Les deux contribuent au même classement
+de masques.
+
+**Calibration empirique** (avant de durcir `--center-logo-scale`) : testé de
+20 % à 40 % sur `art/Circle Logo.svg`, sur un QR court (v3) et un QR plus
+long (v8, URL avec query string), sur les 8 masques à chaque fois — tout
+décode encore à 40 %. La marge de manœuvre est donc plus confortable que le
+plafond choisi ; le plafond à 40 %/avertissement à 30 % reste volontairement
+prudent (un futur logo plus dense en encre que ce badge, ou un texte moins
+tolérant aux erreurs, pourrait se comporter moins bien). Si ce plafond est
+révisé, retester avec le même protocole plutôt que de se fier à ce résultat
+qui ne vaut que pour cet essai précis.
+
 ### CLI : évaluation des 8 masques
 
 `cli.ts` encode systématiquement les 8 masques QR (0 à 7) via
 `QrCode.encodeSegments(segs, ecl, 1, 40, mask, true)`, calcule pour chacun le
-nombre de modules sombres tombant sous la boîte englobante de l'illustration
-(`countDarkModulesUnderArtwork`, une heuristique, pas une mesure exacte), les
-classe, et n'écrit sur disque que les `--count` meilleures (défaut 8, donc
-tout est écrit par défaut). Le niveau de correction d'erreur est toujours
-`Ecc.HIGH`, en dur.
+nombre de modules sombres concernés par les overlays (`--art` et/ou
+`--center-logo`, voir `countDarkModulesUnderArtwork`), les classe, et n'écrit
+sur disque que les `--count` meilleures (défaut 8, donc tout est écrit par
+défaut). Le niveau de correction d'erreur est toujours `Ecc.HIGH`, en dur.
 
 ## Options CLI actuelles
 
 Voir le tableau du [README.md](README.md#personnaliser-le-rendu) pour la
 description utilisateur. Côté code, chaque flag CLI (`kebab-case`) alimente un
 champ de `RenderOpts` (`camelCase`) dans `main()` — les deux fichiers doivent
-rester synchronisés si l'un des deux change. `modulePx` (pas de la grille) et
-`quietZone` (marge silencieuse) ne sont **pas** exposés en CLI, réglés en dur
-dans `DEFAULT_RENDER_OPTS`.
+rester synchronisés si l'un des deux change. `--spacing` alimente `modulePx`
+(pas de la grille, en px) : comme il fixe l'unité de base de toute la
+géométrie, il redimensionne le SVG entier (positions, finders, marge
+silencieuse) plutôt que de ne toucher qu'à l'espace entre les points — c'est
+son rôle, distinct de `--dot-size` (diamètre d'un point) qui n'affecte que le
+rayon des cercles. `quietZone` (marge silencieuse, en modules) reste **pas**
+exposée en CLI, réglée en dur dans `DEFAULT_RENDER_OPTS`.
 
 ## Décisions historiques (pour éviter de refaire les mêmes essais)
 
