@@ -1,0 +1,3 @@
+[submodule "vendor/qrcodegen"]
+	path = vendor/qrcodegen
+	url = https://github.com/nayuki/QR-Code-generator
