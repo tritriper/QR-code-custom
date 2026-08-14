@@ -8,7 +8,7 @@
     "prepare": "npm run vendor",
     "typecheck": "tsc --noEmit",
     "build:web": "npm run vendor && esbuild web/main.ts --bundle --minify --format=esm --outfile=site/app.js && cp web/index.html web/style.css site/ && cp -r art site/",
-    "dev:web": "npm run vendor && esbuild web/main.ts --bundle --format=esm --outfile=site/app.js --servedir=site --watch"
+    "dev:web": "npm run build:web && esbuild web/main.ts --bundle --format=esm --outfile=site/app.js --servedir=site --watch"
   },
   "devDependencies": {
     "@types/node": "^22.20.1",
