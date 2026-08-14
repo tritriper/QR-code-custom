@@ -9,8 +9,8 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 
-import qrcodegen from "./generated/qrcodegen.js";
-import { DEFAULT_RENDER_OPTS, countDarkModulesUnderArtwork, renderQrSvg, type RenderOpts } from "./render.js";
+import { MASK_COUNT, buildVariants, parseSvg, renderVariant, toUpperUrl, type SvgFile } from "./qr.js";
+import { DEFAULT_RENDER_OPTS, type RenderOpts } from "./render.js";
 
 interface Options {
   url: string;
@@ -44,28 +44,17 @@ const DEFAULT_ART = "art/CF-Logo-VertFonce-Trans.svg";
 /** Couleur de l'illustration par défaut : vert foncé de la charte Collecti'FROG. */
 const DEFAULT_ART_COLOR = "#12341f";
 
-interface SvgFile {
-  content: string;
-  viewBox: string;
-}
-
-/** Une des 8 variantes de masque du même contenu. */
-interface Variant {
-  mask: number;
-  version: number;
-  size: number;
-  svg: string;
-  /** Modules sombres sous l'illustration : plus c'est bas, plus le logo ressort. */
-  collisions: number;
-}
-
-const MASK_COUNT = 8;
-
 function main(): void {
   const opts = parseOptions();
   const artwork = opts.noArt ? undefined : readSvg(opts.art);
   const centerLogo = opts.centerLogo === undefined ? undefined : readSvg(opts.centerLogo);
-  const text = opts.upper ? toUpperUrl(opts.url) : opts.url;
+
+  let text = opts.url;
+  if (opts.upper) {
+    const upper = toUpperUrl(opts.url);
+    text = upper.text;
+    for (const warning of upper.warnings) console.warn(`Attention : ${warning}`);
+  }
 
   const renderOpts: RenderOpts = {
     ...DEFAULT_RENDER_OPTS,
@@ -105,26 +94,9 @@ function main(): void {
       continue;
     }
     const file = join(opts.out, `qr-mask${variant.mask}.svg`);
-    writeFileSync(file, variant.svg, "utf8");
+    writeFileSync(file, renderVariant(variant, renderOpts), "utf8");
     console.log(`  ✓  ${summary} → ${file}`);
   }
-}
-
-function buildVariants(text: string, renderOpts: RenderOpts): Variant[] {
-  const variants: Variant[] = [];
-  for (let mask = 0; mask < MASK_COUNT; mask++) {
-    const segments = qrcodegen.QrSegment.makeSegments(text);
-    const qr = qrcodegen.QrCode.encodeSegments(segments, qrcodegen.QrCode.Ecc.HIGH, 1, 40, mask, true);
-    const modules = toMatrix(qr);
-    variants.push({
-      mask,
-      version: qr.version,
-      size: qr.size,
-      svg: renderQrSvg(modules, renderOpts),
-      collisions: countDarkModulesUnderArtwork(modules, renderOpts),
-    });
-  }
-  return variants;
 }
 
 function parseOptions(): Options {
@@ -248,53 +220,8 @@ function number(raw: string, flag: string): number {
   return value;
 }
 
-/**
- * Passe l'URL en majuscules pour déclencher le mode alphanumérique de qrcodegen
- * (5,5 bits/caractère au lieu de 8), ce qui abaisse la version du symbole.
- */
-function toUpperUrl(url: string): string {
-  // Le schéma et le host sont insensibles à la casse, le reste ne l'est pas :
-  // on prévient plutôt que de casser silencieusement le lien.
-  const rest = url.replace(/^[a-z]+:\/\/[^/?#]*/i, "");
-  if (rest !== "" && rest !== "/") {
-    console.warn(`Attention : "${rest}" est sensible à la casse, --upper peut rendre l'URL invalide.`);
-  }
-
-  const upper = url.toUpperCase();
-  if (!qrcodegen.QrSegment.isAlphanumeric(upper)) {
-    console.warn("Attention : l'URL contient des caractères hors du jeu alphanumérique QR, --upper est sans effet.");
-  }
-  return upper;
-}
-
-/** Extrait le viewBox et le contenu interne d'un fichier SVG. */
 function readSvg(path: string): SvgFile {
-  const source = readFileSync(path, "utf8");
-
-  const viewBox = /<svg[^>]*\sviewBox="([^"]+)"/i.exec(source)?.[1];
-  if (viewBox === undefined) {
-    throw new Error(`Aucun attribut viewBox trouvé dans ${path}`);
-  }
-
-  const opening = /<svg[^>]*>/i.exec(source);
-  const closing = source.lastIndexOf("</svg>");
-  if (opening === null || closing === -1) {
-    throw new Error(`${path} ne ressemble pas à un fichier SVG`);
-  }
-
-  return { viewBox, content: source.slice(opening.index + opening[0].length, closing).trim() };
-}
-
-function toMatrix(qr: qrcodegen.QrCode): boolean[][] {
-  const matrix: boolean[][] = [];
-  for (let y = 0; y < qr.size; y++) {
-    const row: boolean[] = [];
-    for (let x = 0; x < qr.size; x++) {
-      row.push(qr.getModule(x, y));
-    }
-    matrix.push(row);
-  }
-  return matrix;
+  return parseSvg(readFileSync(path, "utf8"), path);
 }
 
 try {
