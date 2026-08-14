@@ -1,0 +1,16 @@
+{
+  "name": "collectifrog-qr",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "vendor": "mkdir -p src/generated && { cat vendor/qrcodegen/typescript-javascript/qrcodegen.ts; echo; echo 'export default qrcodegen;'; } > src/generated/qrcodegen.ts",
+    "prepare": "npm run vendor",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.1",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}
