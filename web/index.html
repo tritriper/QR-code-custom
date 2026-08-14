@@ -4,13 +4,124 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Générateur de QR code — Collecti'FROG</title>
+    <meta name="description" content="Génère un QR code personnalisé avec ton logo : points ronds, coins arrondis, couleurs au choix." />
     <link rel="stylesheet" href="style.css" />
   </head>
   <body>
-    <main id="app">
-      <h1>Générateur de QR code</h1>
-      <div id="preview"></div>
-    </main>
+    <div class="page">
+      <header class="head">
+        <h1>Générateur de QR code</h1>
+        <p class="lede">Charge ton logo, règle l'apparence, télécharge le SVG. Tout se passe dans ton navigateur : aucun fichier n'est envoyé sur Internet.</p>
+      </header>
+
+      <div class="layout">
+        <form class="panel raised" id="controls" autocomplete="off">
+          <section class="group">
+            <h2>Contenu</h2>
+            <label class="field">
+              <span class="label">Adresse ou texte à encoder</span>
+              <input class="inset text" type="text" id="url" value="https://collecti-frog.fr" placeholder="https://exemple.fr" />
+            </label>
+          </section>
+
+          <section class="group">
+            <h2>Style</h2>
+            <div class="segmented inset" role="radiogroup" aria-label="Style du logo">
+              <label><input type="radio" name="mode" value="art" checked /><span>Logo intégré</span></label>
+              <label><input type="radio" name="mode" value="center" /><span>Logo au centre</span></label>
+              <label><input type="radio" name="mode" value="none" /><span>Sans logo</span></label>
+            </div>
+            <p class="hint" data-modes="art">Le logo est dessiné par-dessus les points, sans en effacer aucun.</p>
+            <p class="hint" data-modes="center">Le logo est posé au centre sur une pastille claire, qui efface les points en dessous.</p>
+          </section>
+
+          <section class="group" data-modes="art center">
+            <h2>Logo</h2>
+            <div class="drop inset" id="drop">
+              <p class="logo-name" id="logo-name">Logo Collecti'FROG par défaut</p>
+              <input type="file" id="logo-file" accept=".svg,image/svg+xml" hidden />
+              <div class="drop-actions">
+                <button type="button" class="btn raised" id="logo-pick">Choisir un fichier</button>
+                <button type="button" class="btn raised" id="logo-reset" hidden>Logo par défaut</button>
+              </div>
+              <p class="hint">Format <strong>SVG</strong> uniquement — glisse le fichier ici ou clique sur le bouton.</p>
+            </div>
+          </section>
+
+          <section class="group">
+            <h2>Couleurs</h2>
+            <label class="field row">
+              <span class="label">Points et coins</span>
+              <input class="swatch inset" type="color" id="color" value="#000000" />
+            </label>
+            <label class="field row" data-modes="art">
+              <span class="label">Logo</span>
+              <input class="swatch inset" type="color" id="art-color" value="#12341f" />
+            </label>
+            <label class="field row" data-modes="center">
+              <span class="label">Logo</span>
+              <input class="swatch inset" type="color" id="center-color" value="#12341f" />
+            </label>
+            <label class="field check" data-modes="center">
+              <input type="checkbox" id="keep-colors" checked />
+              <span class="label">Garder les couleurs d'origine du logo</span>
+            </label>
+          </section>
+
+          <section class="group">
+            <h2>Forme</h2>
+            <label class="field">
+              <span class="label">Taille des points <output data-for="dot-size"></output></span>
+              <input class="range" type="range" id="dot-size" min="1" max="12" step="0.5" value="5" />
+            </label>
+            <label class="field">
+              <span class="label">Espacement <output data-for="spacing"></output></span>
+              <input class="range" type="range" id="spacing" min="4" max="20" step="1" value="10" />
+            </label>
+            <label class="field" data-modes="art">
+              <span class="label">Taille du logo <output data-for="art-scale" data-unit=" %"></output></span>
+              <input class="range" type="range" id="art-scale" min="50" max="200" step="5" value="140" />
+            </label>
+            <label class="field" data-modes="center">
+              <span class="label">Taille du logo <output data-for="center-scale" data-unit=" %"></output></span>
+              <input class="range" type="range" id="center-scale" min="10" max="40" step="1" value="40" />
+            </label>
+            <label class="field" data-modes="art">
+              <span class="label">Épaisseur du trait du logo <output data-for="thicken"></output></span>
+              <input class="range" type="range" id="thicken" min="0" max="4" step="0.25" value="1" />
+            </label>
+          </section>
+
+          <details class="group advanced">
+            <summary>Options avancées</summary>
+            <label class="field check">
+              <input type="checkbox" id="upper" />
+              <span class="label">Encoder l'adresse en MAJUSCULES</span>
+            </label>
+            <p class="hint">Produit parfois un QR code plus simple, mais ne fonctionne que pour les adresses sans partie sensible à la casse.</p>
+          </details>
+        </form>
+
+        <aside class="result">
+          <div class="panel raised preview-card">
+            <div class="preview inset" id="preview"></div>
+
+            <div class="variants">
+              <button type="button" class="btn raised nav" id="prev" aria-label="Variante précédente">‹</button>
+              <span class="variant-label" id="variant-label" aria-live="polite">Variante 1 sur 8</span>
+              <button type="button" class="btn raised nav" id="next" aria-label="Variante suivante">›</button>
+            </div>
+            <p class="hint center">8 versions du même QR code, classées de la plus lisible à la moins lisible.</p>
+
+            <button type="button" class="btn raised primary" id="download">Télécharger le SVG</button>
+          </div>
+
+          <div id="messages" class="messages"></div>
+
+          <p class="hint center check-tip">Avant de l'utiliser, scanne-le avec l'appareil photo de ton téléphone pour vérifier qu'il ouvre bien le bon lien.</p>
+        </aside>
+      </div>
+    </div>
     <script type="module" src="app.js"></script>
   </body>
 </html>
