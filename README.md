@@ -1,21 +1,32 @@
 # QR-code-custom
 
-Cet outil crée des QR codes personnalisés pour l'association Collecti'FROG :
-points ronds, coins arrondis, et le logo de l'association affiché par-dessus,
-sans jamais rendre le code illisible.
+Cet outil crée des QR codes personnalisés : points ronds, coins arrondis, avec un logo affiché par-dessus.
 
 Il fonctionne depuis un terminal (une fenêtre où l'on tape des commandes).
 Pas d'installation d'application, pas de compte à créer.
 
+Ce projet utilise le generateur de QRCode [nayuki/QR-Code-generator](https://github.com/nayuki/QR-Code-generator)
+
+## Exemples
+<img src="exemple/artwork.svg" alt="artwork" width="200"/>
+<img src="exemple/center-logo.svg" alt="center-logo" width="200"/>
+
 ## Installation (à faire une seule fois)
 
-La façon la plus simple est d'utiliser VS Code :
+### Solution 1 (non testé, peut manquer des deps)
+1. Installer npm 
+2. Télécharger le code du repository
+3. Ouvrir un terminal de commande dans le dossier du repository
 
-1. Installe [VS Code](https://code.visualstudio.com/) si ce n'est pas déjà fait.
+### Solution 2 (mode developpeur)
+
+Si tu as VS Code et docker :
+1. Télécharge le code du repository
 2. Ouvre ce projet dans VS Code.
 3. Une notification propose de « Rouvrir dans un conteneur » (*Reopen in
    Container*) — accepte. VS Code installe alors tout ce qu'il faut
    automatiquement (ça peut prendre quelques minutes la première fois).
+4. Ouvre un nouveau terminal (ctrl+j)
 
 Si tu n'as pas cette notification, ouvre la palette de commandes
 (`Ctrl+Maj+P` ou `Cmd+Maj+P` sur Mac) et cherche *Dev Containers: Reopen in
@@ -23,8 +34,7 @@ Container*.
 
 ## Générer un QR code
 
-Une fois le projet ouvert (dans le conteneur), ouvre un terminal dans VS Code
-(menu *Terminal → New Terminal*) et tape :
+Dans le terminal :
 
 ```bash
 npx tsx src/cli.ts --url "https://collecti-frog.fr"
@@ -125,6 +135,27 @@ conçus pour rester lisibles même abîmés — mais ne pas dépasser `40` pour
 `--center-logo-scale`, et toujours vérifier le résultat en le scannant (voir
 *Vérifier que le QR code fonctionne* plus haut). Au-delà de `30`, l'outil
 affiche un avertissement.
+
+Comme pour `--art`, `--center-logo` accepte n'importe quel fichier `.svg` —
+pas seulement le badge rond fourni :
+
+```bash
+npx tsx src/cli.ts --url "https://collecti-frog.fr" --no-art --center-logo art/mon-badge.svg
+```
+
+### Les deux exemples, côte à côte
+
+Dans les deux modes — le logo intégré aux points (celui de base) et le badge
+rond au centre — c'est toujours le même principe : le nom de ton fichier
+`.svg` après `--art` ou `--center-logo`.
+
+```bash
+# Mode de base : logo intégré aux points
+npx tsx src/cli.ts --url "https://collecti-frog.fr" --art art/mon-logo.svg
+
+# Logo rond au centre
+npx tsx src/cli.ts --url "https://collecti-frog.fr" --no-art --center-logo art/mon-badge.svg
+```
 
 ## En cas de souci
 
