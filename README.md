@@ -1,141 +1,115 @@
 # QR-code-custom
 
-Générateur de QR code stylisé « logo intégré » pour l'association Collecti'FROG.
-Modules ronds vert foncé, motifs de détection arrondis, illustration dessinée
-par-dessus la matrice avec les modules clairs repercés en blanc à l'intérieur
-des traits. Sortie SVG uniquement.
+Cet outil crée des QR codes personnalisés pour l'association Collecti'FROG :
+points ronds, coins arrondis, et le logo de l'association affiché par-dessus,
+sans jamais rendre le code illisible.
 
-L'outil ne dégrade jamais le code : **tous** les modules sombres restent
-présents, et les modules clairs recouverts par l'illustration sont repeints en
-clair. L'information encodée est donc intégralement préservée.
+Il fonctionne depuis un terminal (une fenêtre où l'on tape des commandes).
+Pas d'installation d'application, pas de compte à créer.
 
-## Installation
+## Installation (à faire une seule fois)
 
-Avec le devcontainer (VS Code → *Reopen in Container*), tout est fait
-automatiquement. Sinon :
+La façon la plus simple est d'utiliser VS Code :
+
+1. Installe [VS Code](https://code.visualstudio.com/) si ce n'est pas déjà fait.
+2. Ouvre ce projet dans VS Code.
+3. Une notification propose de « Rouvrir dans un conteneur » (*Reopen in
+   Container*) — accepte. VS Code installe alors tout ce qu'il faut
+   automatiquement (ça peut prendre quelques minutes la première fois).
+
+Si tu n'as pas cette notification, ouvre la palette de commandes
+(`Ctrl+Maj+P` ou `Cmd+Maj+P` sur Mac) et cherche *Dev Containers: Reopen in
+Container*.
+
+## Générer un QR code
+
+Une fois le projet ouvert (dans le conteneur), ouvre un terminal dans VS Code
+(menu *Terminal → New Terminal*) et tape :
 
 ```bash
-git submodule update --init --recursive
-npm install
+npx tsx src/cli.ts --url "https://collecti-frog.fr"
 ```
 
-`npm install` déclenche `npm run vendor`, qui génère `src/generated/qrcodegen.ts`
-(voir [Note sur le submodule](#note-sur-le-submodule)).
+Remplace l'adresse par celle que tu veux encoder. Après quelques secondes,
+8 fichiers apparaissent dans le dossier `dist/` : `qr-mask0.svg`,
+`qr-mask1.svg`, etc. Ce sont 8 versions du même QR code, légèrement
+différentes visuellement — ouvre-les pour voir laquelle te plaît le plus.
+Le terminal affiche un petit résumé pour chacune ; celle avec le moins de
+« modules sombres sous l'illustration » est en général la plus lisible.
 
-## Utilisation
+Chaque fichier `.svg` peut être ouvert dans un navigateur, importé dans Canva,
+Illustrator, Figma, ou converti en PNG/JPEG avec n'importe quel outil en ligne.
+
+### Vérifier que le QR code fonctionne
+
+Avant de l'utiliser, scanne-le avec l'appareil photo de ton téléphone (comme
+pour scanner un QR code normal). S'il ouvre bien le bon lien, c'est bon.
+
+## Personnaliser le rendu
+
+Toutes ces options se rajoutent à la suite de la commande de base. Par
+exemple, pour un QR code avec des points plus gros :
 
 ```bash
-npx tsx src/cli.ts --url "https://collecti-frog.fr" --out dist/
+npx tsx src/cli.ts --url "https://collecti-frog.fr" --dot-size 8
 ```
 
-`--art` a un défaut ([art/CF-Logo-VertFonce-Trans.svg](art/CF-Logo-VertFonce-Trans.svg)),
-seul `--url` est requis.
+On peut combiner plusieurs options dans la même commande.
 
-Un même contenu admet 8 variantes de masque, toutes valides mais visuellement
-différentes. Les 8 sont systématiquement évaluées et classées ; seules les
-`--count` meilleures sont écrites, les autres n'apparaissent que dans le
-récapitulatif. Les lignes marquées `✓` sont les fichiers produits :
-
-```
-URL encodée : https://collecti-frog.fr — illustration à 140 %
-  ✓  masque 0 → version 3 (29×29), 432 modules sombres sous l'illustration → dist/qr-mask0.svg
-     ...
-  ✓  masque 6 → version 3 (29×29), 418 modules sombres sous l'illustration → dist/qr-mask6.svg
-  ✓  masque 7 → version 3 (29×29), 438 modules sombres sous l'illustration → dist/qr-mask7.svg
-```
-
-Le classement se fait sur le nombre de modules sombres tombant sous
-l'illustration : moins il y en a, moins celle-ci se bat visuellement avec le
-code. C'est une heuristique, pas une règle — d'où `--count` pour en sortir
-plusieurs et trancher à l'œil.
-
-### Options
-
-| Option | Défaut | Rôle |
+| Option | Ce que ça change | Valeur par défaut |
 | --- | --- | --- |
-| `--url` | *(requis)* | Contenu encodé |
-| `--art` | `art/CF-Logo-VertFonce-Trans.svg` | SVG de l'illustration |
-| `--out` | `dist/` | Dossier de sortie |
-| `--art-scale` | `140` | Zoom du logo, en % de la zone de données, dans `]0, 200]` |
-| `--count` | `8` | Nombre de variantes de masque à écrire, de 1 à 8, les mieux classées d'abord |
-| `--thicken` | `1` | Épaississement du trait du logo, en px |
-| `--art-color` | `#12341f` | Couleur du logo |
-| `--color` | `#000000` | Couleur des modules et des motifs de détection |
-| `--dot-size` | `5` | Diamètre d'un point, en px |
-| `--upper` | *(désactivé)* | Passe l'URL en majuscules avant encodage |
+| `--url` | L'adresse ou le texte encodé dans le QR code (obligatoire) | — |
+| `--out` | Le dossier où enregistrer les fichiers | `dist/` |
+| `--color` | La couleur des points et des coins du QR code (ex. `"#12341f"` pour le vert Collecti'FROG) | noir |
+| `--dot-size` | La taille des points, en une unité proche du pixel | `5` |
+| `--art` | Le logo à afficher par-dessus le QR code (un fichier `.svg`) | logo grenouille vert |
+| `--art-scale` | La taille du logo, en pourcentage de la zone centrale du QR code | `140` |
+| `--art-color` | La couleur du logo | vert Collecti'FROG |
+| `--thicken` | Épaissit le trait du logo pour qu'il ressorte mieux | `1` |
+| `--count` | Le nombre de variantes à générer (entre 1 et 8) | `8` |
+| `--upper` | Écrit l'adresse en MAJUSCULES avant de l'encoder — permet parfois d'obtenir un QR code un peu plus simple. Fonctionne seulement pour des adresses simples type `https://collecti-frog.fr` | désactivé |
 
-`--art-scale` est un pourcentage du côté de la zone de données : `100` fait
-tenir le logo exactement dans le code, au-delà il déborde sur la marge
-silencieuse dont les lecteurs ont besoin pour cadrer — l'outil prévient et il
-faut alors vérifier le décodage.
+Quelques exemples :
 
 ```bash
-# les 3 meilleures variantes, logo zoomé à 110 %
-npx tsx src/cli.ts --url "https://collecti-frog.fr" --out dist/ --art-scale 110 --count 3
+# QR code tout en vert Collecti'FROG, points plus gros
+npx tsx src/cli.ts --url "https://collecti-frog.fr" --color "#12341f" --dot-size 8
 
-# QR en vert de la charte, points plus gros
-npx tsx src/cli.ts --url "https://collecti-frog.fr" --out dist/ --color "#12341f" --dot-size 8
+# Une seule variante au lieu de 8, dans un dossier "mon-dossier"
+npx tsx src/cli.ts --url "https://collecti-frog.fr" --out mon-dossier/ --count 1
+
+# Logo plus petit et plus discret
+npx tsx src/cli.ts --url "https://collecti-frog.fr" --art-scale 90 --thicken 0
 ```
 
-### Lisibilité du logo
+### Utiliser un autre logo
 
-`--thicken` épaissit le trait du logo en ajoutant un contour de la même
-couleur par-dessus le remplissage existant, sans effacer aucun module.
-`--thicken 0` revient au trait d'origine, tel quel dans le SVG source.
-
-`--art-color` change la couleur du logo indépendamment de celle des modules —
-utile pour une couleur d'accent de la charte plutôt que le vert des modules.
-Fonctionne quelle que soit la couleur d'origine du SVG source.
-
-`--upper` déclenche le mode alphanumérique de qrcodegen (5,5 bits/caractère au
-lieu de 8) et réduit donc la version du symbole. Les schémas et les hosts sont
-insensibles à la casse, **pas les chemins ni les query strings** : l'outil
-prévient quand l'URL en contient.
-
-La taille de module (pas de la grille) et la marge silencieuse ne sont pas
-exposées en CLI ; elles se règlent dans `DEFAULT_RENDER_OPTS`
-([src/render.ts](src/render.ts)). Le SVG produit est indenté et prévu pour être
-retouché à la main.
-
-## Vérifier qu'un code se décode
+Remplace `--art` par le chemin vers ton propre fichier `.svg` :
 
 ```bash
-rsvg-convert -w 800 -h 800 dist/qr-mask6.svg -o /tmp/qr.png
-zbarimg -q --raw /tmp/qr.png
+npx tsx src/cli.ts --url "https://collecti-frog.fr" --art art/mon-logo.svg
 ```
 
-Les messages `Connection Error … dbus` de `zbarimg` viennent de sa sonde vidéo
-et sont sans rapport avec le décodage.
+Le logo doit être un fichier `.svg` (pas un `.png` ni un `.jpg`).
 
-## Architecture
+## En cas de souci
 
-| Fichier | Rôle |
-| --- | --- |
-| [src/render.ts](src/render.ts) | Matrice booléenne + config → chaîne SVG. Fonctions pures, aucune E/S. |
-| [src/cli.ts](src/cli.ts) | Entrée CLI, seul endroit avec des effets de bord. |
-| `vendor/qrcodegen/` | Submodule [nayuki/QR-Code-generator](https://github.com/nayuki/QR-Code-generator) v1.8.0, **à ne pas modifier**. |
+**« Attention : à XXX % l'illustration déborde… »** — le logo est réglé trop
+grand (`--art-scale` trop élevé) et risque de gêner la lecture du QR code.
+Réduis la valeur, ou vérifie en scannant le résultat avec ton téléphone.
 
-Ordre de composition du SVG, du fond vers le dessus :
+**Le QR code ne se scanne pas** — essaie une autre variante parmi les 8
+générées (`qr-mask0.svg` à `qr-mask7.svg`), ou réduis `--art-scale`.
 
-1. `<rect>` de fond clair, marge silencieuse comprise
-2. tous les modules sombres, sauf ceux des 3 motifs de détection
-3. les 3 motifs de détection stylisés (contour arrondi + pastille)
-4. l'illustration, dans la couleur des modules par défaut (`--art-color` pour une autre)
-5. tous les modules clairs, masqués par `url(#art)`
+**Une erreur mentionnant `art-color` ou `color`** — la couleur donnée n'est
+pas reconnue : utilise un code hexadécimal comme `"#12341f"`, ou un nom de
+couleur simple en anglais (`"red"`, `"green"`…).
 
-Le masque `#art` est un rectangle noir plein écran plus l'illustration en blanc :
-il ne laisse passer les points clairs qu'à l'intérieur des traits.
+**Rien ne se passe / erreur `command not found`** — vérifie que tu es bien
+dans le terminal du conteneur VS Code (voir *Installation* ci-dessus), pas
+dans un terminal classique.
 
-## Note sur le submodule
+---
 
-`vendor/qrcodegen/typescript-javascript/qrcodegen.ts` déclare
-`namespace qrcodegen { … }` sans `export` : c'est un *script global*, pas un
-module ES, et l'importer directement ne donne rien. Comme on ne modifie pas un
-submodule, `npm run vendor` en produit une copie suffixée d'une ligne
-`export default qrcodegen;` dans `src/generated/` (gitignoré, régénéré à chaque
-`npm install`).
-
-## Dépendances
-
-Aucune dépendance runtime. En développement : `tsx` pour exécuter, `typescript`
-et `@types/node` pour `npm run typecheck`.
+*Pour les développeurs qui contribuent au code de cet outil, voir
+[AGENTS.md](AGENTS.md).*
