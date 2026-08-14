@@ -144,9 +144,13 @@ défaut). Le niveau de correction d'erreur est toujours `Ecc.HIGH`, en dur.
 Voir le tableau du [README.md](README.md#personnaliser-le-rendu) pour la
 description utilisateur. Côté code, chaque flag CLI (`kebab-case`) alimente un
 champ de `RenderOpts` (`camelCase`) dans `main()` — les deux fichiers doivent
-rester synchronisés si l'un des deux change. `modulePx` (pas de la grille) et
-`quietZone` (marge silencieuse) ne sont **pas** exposés en CLI, réglés en dur
-dans `DEFAULT_RENDER_OPTS`.
+rester synchronisés si l'un des deux change. `--spacing` alimente `modulePx`
+(pas de la grille, en px) : comme il fixe l'unité de base de toute la
+géométrie, il redimensionne le SVG entier (positions, finders, marge
+silencieuse) plutôt que de ne toucher qu'à l'espace entre les points — c'est
+son rôle, distinct de `--dot-size` (diamètre d'un point) qui n'affecte que le
+rayon des cercles. `quietZone` (marge silencieuse, en modules) reste **pas**
+exposée en CLI, réglée en dur dans `DEFAULT_RENDER_OPTS`.
 
 ## Décisions historiques (pour éviter de refaire les mêmes essais)
 

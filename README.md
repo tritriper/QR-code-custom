@@ -62,6 +62,7 @@ On peut combiner plusieurs options dans la même commande.
 | `--out` | Le dossier où enregistrer les fichiers | `dist/` |
 | `--color` | La couleur des points et des coins du QR code (ex. `"#12341f"` pour le vert Collecti'FROG) | noir |
 | `--dot-size` | La taille des points, en une unité proche du pixel | `5` |
+| `--spacing` | L'espacement entre les points (distance entre leurs centres, même unité) — plus la valeur est grande, plus les points sont espacés et le QR code prend de la place | `10` |
 | `--art` | Le logo à afficher par-dessus le QR code (un fichier `.svg`) | logo grenouille vert |
 | `--art-scale` | La taille du logo, en pourcentage de la zone centrale du QR code | `140` |
 | `--art-color` | La couleur du logo | vert Collecti'FROG |
@@ -80,6 +81,12 @@ npx tsx src/cli.ts --url "https://collecti-frog.fr" --out mon-dossier/ --count 1
 
 # Logo plus petit et plus discret
 npx tsx src/cli.ts --url "https://collecti-frog.fr" --art-scale 90 --thicken 0
+
+# Points bien espacés, aspect aéré
+npx tsx src/cli.ts --url "https://collecti-frog.fr" --spacing 16
+
+# Points serrés, aspect dense et compact
+npx tsx src/cli.ts --url "https://collecti-frog.fr" --spacing 6
 ```
 
 ### Utiliser un autre logo

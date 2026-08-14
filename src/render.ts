@@ -46,8 +46,8 @@ export const DEFAULT_RENDER_OPTS: RenderOpts = {
   dotPx: 5,
   artworkScale: 1.4,
   artworkThickenPx: 1,
-  centerLogoScale: 0.24,
-  centerLogoMarginPx: 4,
+  centerLogoScale: 0.40,
+  centerLogoMarginPx: 0,
 };
 
 /** Géométrie dérivée, en pixels utilisateur SVG. */

@@ -27,6 +27,8 @@ interface Options {
   color: string;
   /** Diamètre d'un point, en px. */
   dotSize: number;
+  /** Distance entre les centres de deux points voisins, en px. */
+  spacing: number;
   /** Désactive l'illustration --art (silhouette intégrée aux points). */
   noArt: boolean;
   /** Chemin du logo à afficher au centre, ou undefined pour ne pas en afficher. */
@@ -69,6 +71,7 @@ function main(): void {
     ...DEFAULT_RENDER_OPTS,
     darkColor: opts.color,
     dotPx: opts.dotSize,
+    modulePx: opts.spacing,
     artworkScale: opts.artScalePercent / 100,
     artworkThickenPx: opts.thicken,
     artworkColor: opts.artColor,
@@ -137,6 +140,7 @@ function parseOptions(): Options {
       "art-color": { type: "string", default: DEFAULT_ART_COLOR },
       color: { type: "string", default: DEFAULT_RENDER_OPTS.darkColor },
       "dot-size": { type: "string", default: String(DEFAULT_RENDER_OPTS.dotPx) },
+      spacing: { type: "string", default: String(DEFAULT_RENDER_OPTS.modulePx) },
       "no-art": { type: "boolean", default: false },
       "center-logo": { type: "string" },
       "center-logo-scale": { type: "string", default: String(DEFAULT_RENDER_OPTS.centerLogoScale * 100) },
@@ -148,7 +152,7 @@ function parseOptions(): Options {
     throw new Error(
       'Usage : --url "<URL>" [--art <fichier.svg>] [--out dist/] [--upper]\n' +
         '        [--art-scale 140] [--count 8] [--thicken 1] [--art-color "#12341f"]\n' +
-        '        [--color "#000000"] [--dot-size 5] [--no-art]\n' +
+        '        [--color "#000000"] [--dot-size 5] [--spacing 10] [--no-art]\n' +
         '        [--center-logo <fichier.svg>] [--center-logo-scale 24] [--center-logo-color "#000"]',
     );
   }
@@ -188,6 +192,11 @@ function parseOptions(): Options {
     throw new Error(`--dot-size doit être strictement positif, reçu "${values["dot-size"]}"`);
   }
 
+  const spacing = number(values.spacing, "--spacing");
+  if (spacing <= 0) {
+    throw new Error(`--spacing doit être strictement positif, reçu "${values.spacing}"`);
+  }
+
   const centerLogoScalePercent = number(values["center-logo-scale"], "--center-logo-scale");
   if (centerLogoScalePercent <= 0 || centerLogoScalePercent > 40) {
     throw new Error(
@@ -219,6 +228,7 @@ function parseOptions(): Options {
     artColor,
     color,
     dotSize,
+    spacing,
     noArt: values["no-art"],
     centerLogo: values["center-logo"],
     centerLogoScalePercent,
