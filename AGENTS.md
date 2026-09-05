@@ -66,7 +66,7 @@ lancer `npm run vendor`.
 | Fichier | Rôle |
 | --- | --- |
 | `src/render.ts` | Matrice booléenne (`boolean[][]`) + `RenderOpts` → chaîne SVG. Fonctions pures. |
-| `src/qr.ts` | Encodage des 8 masques, parsing d'un SVG source, `--upper`. Fonctions pures, partagées par les deux entrées. |
+| `src/qr.ts` | Encodage d'un masque, parsing d'un SVG source, `--upper`. Fonctions pures, partagées par les deux entrées. |
 | `src/cli.ts` | Entrée terminal : arguments, lecture/écriture de fichiers, `console`. |
 | `web/main.ts` | Entrée navigateur : DOM, fichier déposé, téléchargement. |
 | `web/index.html`, `web/style.css` | Structure et habillage de l'app web. |
@@ -77,13 +77,22 @@ lancer `npm run vendor`.
 
 ### Séparation encodage / rendu
 
-`buildVariants()` encode les 8 masques et calcule leurs collisions ;
-`renderVariant()` construit le SVG d'une variante. Les deux sont séparés parce
-que le rendu coûte cher (le logo source est recopié jusqu'à 3 fois dans la
-chaîne produite) alors que le classement des masques n'a besoin que du compte
-de collisions. Le CLI ne rend donc que les `--count` variantes écrites, et
-l'app web ne rend que celle affichée. Ne pas refusionner les deux : à chaque
-frappe clavier, l'app reconstruirait 8 SVG dont 7 jetés.
+`buildVariant()` encode **un seul** masque et n'en retourne que la matrice ;
+`renderVariant()` en construit le SVG. Les deux restent séparés parce qu'ils
+ne dépendent pas des mêmes entrées : l'encodage ne dépend que du texte, du
+masque et de la densité, le rendu de tout `RenderOpts`. C'est aussi le rendu
+qui coûte cher, le logo source y étant recopié jusqu'à 3 fois dans la chaîne
+produite.
+
+**Il n'y a jamais 8 variantes construites, ni de classement.** Une version
+précédente encodait les 8 masques, comptait pour chacun les modules sombres
+recouverts par les overlays et les classait du plus lisible au moins lisible.
+Retiré à la demande : un seul masque est encodé, celui affiché, et
+« Régénérer » (`--mask` en CLI) passe au suivant en bouclant. Les 8 masques
+sont des dessins également valides du même contenu — le classement était un
+confort, pas une condition de lisibilité. `countDarkModulesUnderArtwork()`,
+qui ne servait qu'à ce classement, a été supprimé de `render.ts` avec lui ; ne
+pas le réintroduire sans réintroduire aussi ce qui s'en servait.
 
 ### Ordre de composition du SVG (`renderQrSvg`)
 
@@ -92,7 +101,9 @@ chaque couche recouvre les précédentes.
 
 1. `<rect>` de fond clair, marge silencieuse comprise
 2. tous les modules sombres, sauf ceux des 3 motifs de détection
-3. les 3 motifs de détection stylisés (contour arrondi + pastille)
+3. les 3 motifs de détection stylisés (contour + pastille, formes et couleurs
+   réglables via `finderShape` / `finderPupilShape` / `finderColor` /
+   `finderPupilColor`)
 4. l'illustration `--art` (silhouette dessinée par-dessus les points)
 5. tous les modules clairs, masqués par `url(#art)` — ne deviennent visibles
    qu'à l'intérieur des traits de l'illustration (repercage)
@@ -135,12 +146,6 @@ aussi, avec une différence : pour le logo central, `color` peut être
 par `recolor()` — contrairement à `--art` où une couleur est toujours
 appliquée (celle des modules par défaut).
 
-`countDarkModulesUnderArtwork` (nom conservé tel quel malgré l'ajout du logo
-central, pour limiter le diff) additionne maintenant deux choses de nature
-différente : le compte heuristique (bbox) de `--art`, et le compte exact
-(cercle de réserve) du logo central. Les deux contribuent au même classement
-de masques.
-
 **Calibration empirique** (avant de durcir `--center-logo-scale`) : testé de
 20 % à 40 % sur `art/Circle Logo.svg`, sur un QR court (v3) et un QR plus
 long (v8, URL avec query string), sur les 8 masques à chaque fois — tout
@@ -151,14 +156,18 @@ tolérant aux erreurs, pourrait se comporter moins bien). Si ce plafond est
 révisé, retester avec le même protocole plutôt que de se fier à ce résultat
 qui ne vaut que pour cet essai précis.
 
-### CLI : évaluation des 8 masques
+### Choix du masque et de la densité
 
-`cli.ts` encode systématiquement les 8 masques QR (0 à 7) via
-`QrCode.encodeSegments(segs, ecl, 1, 40, mask, true)`, calcule pour chacun le
-nombre de modules sombres concernés par les overlays (`--art` et/ou
-`--center-logo`, voir `countDarkModulesUnderArtwork`), les classe, et n'écrit
-sur disque que les `--count` meilleures (défaut 8, donc tout est écrit par
-défaut). Le niveau de correction d'erreur est toujours `Ecc.HIGH`, en dur.
+`cli.ts` encode un seul symbole via
+`QrCode.encodeSegments(segs, ecl, density, 40, mask, true)` et écrit un seul
+fichier, `qr-mask{N}.svg`. `--mask` (0 à 7, défaut 0) choisit le dessin ; le
+résumé du terminal rappelle la valeur suivante à essayer, comme le bouton
+« Régénérer » de l'app web. Le niveau de correction d'erreur est toujours
+`Ecc.HIGH`, en dur ; la version minimale vient de `--density`, bornée par
+`MIN_DENSITY`/`MAX_DENSITY` dans `qr.ts`. C'est un plancher : un texte long
+donne une version plus élevée que celle demandée, et la grille réellement
+obtenue est celle affichée dans le résumé du CLI comme sous l'aperçu de
+l'app.
 
 ## Options CLI actuelles
 
@@ -166,13 +175,23 @@ Voir le tableau du [README.md](README.md#personnaliser-le-rendu) pour la
 description utilisateur. Côté code, chaque flag CLI (`kebab-case`) alimente un
 champ de `RenderOpts` (`camelCase`) dans `main()`, et son contrôle de l'app web
 fait de même dans `renderOpts()` — les trois doivent rester synchronisés si
-l'un d'eux change. `--spacing` alimente `modulePx`
-(pas de la grille, en px) : comme il fixe l'unité de base de toute la
-géométrie, il redimensionne le SVG entier (positions, finders, marge
-silencieuse) plutôt que de ne toucher qu'à l'espace entre les points — c'est
-son rôle, distinct de `--dot-size` (diamètre d'un point) qui n'affecte que le
-rayon des cercles. `quietZone` (marge silencieuse, en modules) reste **pas**
-exposée en CLI, réglée en dur dans `DEFAULT_RENDER_OPTS`.
+l'un d'eux change.
+
+**`--spacing` a existé et a été retiré.** Il alimentait `modulePx`, le pas de
+la grille : comme c'est l'unité de base de toute la géométrie, le faire varier
+redimensionnait le SVG entier (positions, finders, marge silencieuse) au lieu
+de n'écarter que les points. Résultat, une fois l'aperçu ramené à une largeur
+fixe — et maintenant que `--size` règle la taille du fichier séparément — il
+ne restait de lui que son rapport à `--dot-size`, c'est-à-dire la grosseur
+apparente des points, doublon exact de `--dot-size`. `modulePx` est donc figé
+à 10 dans `DEFAULT_RENDER_OPTS`, comme `quietZone`, et seul `--dot-size`
+(diamètre d'un point, sur cette grille au pas de 10) est exposé. Ne pas
+réexposer `modulePx` : tout rendu atteignable par un couple
+(`modulePx`, `dotPx`) l'est déjà par `dotPx` seul à `--size` égal.
+
+La taille du fichier produit est un réglage à part, `--size` → `outputPx`, qui
+ne touche qu'aux attributs `width`/`height` du `<svg>` sans rien changer au
+`viewBox` ni à la géométrie.
 
 Le **SVG est le seul format de logo accepté**, des deux côtés. Ce n'est pas un
 oubli : voir [improvement.md](improvement.md) pour ce que coûterait le
@@ -180,6 +199,41 @@ support du raster, style par style.
 
 ## Décisions historiques (pour éviter de refaire les mêmes essais)
 
+- **Formes des motifs de détection** : une forme n'est pas un nom de plus dans
+  un `switch` de dessins, c'est un quadruplet de rayons d'arrondi (`Radii`,
+  dans le sens horaire à partir du coin haut-gauche). `finderMark()` en tire
+  un `<rect rx>` si les 4 coins sont identiques, un `<path>` sinon — le `rect`
+  n'est pas une optimisation mais un choix de lisibilité du SVG produit.
+  Ajouter une forme = une entrée dans `FINDER_SHAPES` et un `case` dans
+  `baseRadii()` ; le CLI, ses messages d'erreur et les boutons de l'app web
+  en découlent tout seuls. Les formes asymétriques sont tournées par
+  `finders()` : le motif haut-gauche est la référence, les deux autres sont
+  son quart de tour, ce qui met leur coin pointu du côté extérieur du symbole
+  et préserve la symétrie du QR autour de sa diagonale.
+- **Le rayon de `leaf` est calibré, pas choisi à l'œil** : ses deux coins
+  arrondis s'arrêtent à 2/5 du côté. À 1/2 (le demi-cercle, l'aspect
+  « feuille » le plus franc) l'arc ronge trop le contour et le rapport
+  1:1:3:1:1 du motif de détection n'est plus retrouvé : testé sur les 8
+  masques rastérisés à 300/400/800 px, 10 échecs de décodage sur 16 à 1/2,
+  aucun à 0,45, 2/5 ou 1/3 — y compris sur une URL longue (version 8). Ne pas
+  remonter ce rayon sans refaire ce test.
+- **Contour rond + centre d'une autre forme : à éviter, avertissement des
+  deux côtés.** Matrice complète des 25 couples de formes, 8 masques × 4
+  rastérisations (300/400/500/800 px), sans overlay : 32/32 décodés partout,
+  sauf le contour `circle` — `circle/square` **0/32**, `circle/rounded` 29/32,
+  `circle/leaf` 28/32, `circle/extra-rounded` 30/32, `circle/circle` 32/32.
+  Le contour rond est fin sur ses diagonales ; un centre anguleux y grignote
+  le blanc qui les sépare et le rapport 1:1:3:1:1 disparaît. La combinaison
+  n'est pas interdite (le CLI et l'app laissent faire, comme pour
+  `--center-logo-scale`), elle déclenche un avertissement dupliqué dans
+  `parseOptions()` et `warnings()`. Si la condition bouge, bouger les deux.
+- **`finderPreviewSvg()` vit dans `render.ts`** alors qu'il ne sert qu'à
+  l'app web : c'est ce qui garantit que les vignettes des boutons de forme
+  sont dessinées par le même code que le QR (même géométrie sur 7 modules),
+  et non redessinées à la main en HTML où elles dériveraient au premier
+  changement. La fonction reste pure ; `web/main.ts` construit les deux
+  groupes de boutons radio à partir de `FINDER_SHAPES`, `index.html` ne
+  contient que les conteneurs vides.
 - **`recolor()` généralisé** : remplace la couleur de `fill`/`stroke` de
   n'importe quel tracé source, pas seulement le noir (les logos fournis ne
   sont pas tous dans la même couleur d'origine). Exclut explicitement `none`
@@ -221,7 +275,8 @@ zbarimg -q --raw /tmp/check.png
 `rsvg-convert` et `zbarimg` sont installés par le devcontainer
 (`.devcontainer/setup.sh`). Les messages `Connection Error … dbus` de
 `zbarimg` viennent de sa sonde vidéo, sans rapport avec le décodage. Tester
-idéalement les 8 masques (`--count 8`), pas seulement un.
+idéalement les 8 masques (boucle sur `--mask 0` à `--mask 7`), pas seulement
+un.
 
 Après tout changement de `RenderOpts` ou des options CLI, lancer aussi :
 
@@ -241,6 +296,9 @@ part.
   Seuls le logo déposé et la variante affichée, qui ne correspondent à aucun
   champ, vivent en variables de module. Ne pas introduire de store : il n'y a
   rien à synchroniser.
+- **Un seul masque est encodé et rendu**, celui de la variable de module
+  `mask` ; « Régénérer » avance d'un cran et reboucle après le 7. Rien
+  d'autre n'est calculé en coulisses (voir *Séparation encodage / rendu*).
 - **Les deux overlays deviennent un choix à trois positions** (`logo intégré`
   / `logo au centre` / `sans logo`). Le CLI permet de les cumuler, l'app non :
   c'est visuellement chargé et ça n'a jamais servi. Les réglages sans objet
@@ -275,7 +333,11 @@ installer, c'est délibéré). Les vérifications faites lors du développement,
 à refaire de la même façon si l'app change sérieusement :
 
 1. `npm run dev:web`, puis à l'œil : rendu neumorphism, bascule entre les
-   trois styles, dépôt d'un logo, défilement des variantes.
+   trois styles, dépôt d'un logo, bouton « Régénérer » (il boucle sur les 8
+   masques), curseur de densité, formes et couleurs des 3 coins — dont les
+   deux rangées de vignettes de forme (contour, puis centre une fois la case
+   « même forme » décochée : les vignettes du centre se redessinent alors avec
+   le contour choisi).
 2. Le protocole de décodage ci-dessus, mais sur des SVG **exportés depuis
    l'app** plutôt que depuis le CLI — c'est le même `render.ts`, mais les
    options y arrivent par un autre chemin.

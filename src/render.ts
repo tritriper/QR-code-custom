@@ -3,14 +3,45 @@
  * Fonctions pures uniquement : aucune E/S, aucun accès au système de fichiers.
  */
 
+/**
+ * Formes disponibles pour les 3 motifs de détection. `leaf` est asymétrique :
+ * son coin pointu est orienté par `finders()`, les autres sont invariantes
+ * par rotation.
+ */
+export const FINDER_SHAPES = ["square", "rounded", "extra-rounded", "circle", "leaf"] as const;
+
+/** Forme d'un motif de détection : son contour et son centre en ont une chacun. */
+export type FinderShape = (typeof FINDER_SHAPES)[number];
+
 export interface RenderOpts {
   darkColor: string;
   lightColor: string;
+  /**
+   * Pas de la grille, en px : l'unité de base de toute la géométrie. Fixé une
+   * fois pour toutes dans `DEFAULT_RENDER_OPTS` et non exposé, comme
+   * `quietZone` — seul son rapport avec `dotPx` se voit à l'écran, et la
+   * taille du fichier se règle par `outputPx`.
+   */
   modulePx: number;
+  /**
+   * Côté du SVG produit, en px. Ne change que les attributs `width`/`height` :
+   * la géométrie interne reste celle de la grille (le `viewBox`), le SVG étant
+   * vectoriel. C'est donc la taille à laquelle le fichier s'affiche par défaut
+   * une fois importé ailleurs, pas une résolution.
+   */
+  outputPx: number;
   /** Marge silencieuse, en modules. Le standard QR en exige 4 au minimum. */
   quietZone: number;
   /** Diamètre d'un point, en px. */
   dotPx: number;
+  /** Forme du contour des 3 motifs de détection. */
+  finderShape: FinderShape;
+  /** Forme du centre des 3 motifs de détection. Par défaut, celle du contour. */
+  finderPupilShape?: FinderShape;
+  /** Couleur du contour des motifs de détection. Par défaut, celle des points. */
+  finderColor?: string;
+  /** Couleur du centre des motifs de détection. Par défaut, celle du contour. */
+  finderPupilColor?: string;
   /** Part du côté de la zone de données occupée par le plus grand côté de l'illustration. */
   artworkScale: number;
   /** Couleur de l'illustration. Par défaut, celle des modules. */
@@ -42,8 +73,10 @@ export const DEFAULT_RENDER_OPTS: RenderOpts = {
   darkColor: "#000000",
   lightColor: "#ffffff",
   modulePx: 10,
+  outputPx: 1024,
   quietZone: 1,
   dotPx: 5,
+  finderShape: "rounded",
   artworkScale: 1.4,
   artworkThickenPx: 1,
   centerLogoScale: 0.40,
@@ -99,7 +132,7 @@ export function renderQrSvg(modules: boolean[][], opts: RenderOpts): string {
 
   const lines: string[] = [];
   lines.push(
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${num(layout.sidePx)}" height="${num(layout.sidePx)}" viewBox="0 0 ${num(layout.sidePx)} ${num(layout.sidePx)}">`,
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${num(opts.outputPx)}" height="${num(opts.outputPx)}" viewBox="0 0 ${num(layout.sidePx)} ${num(layout.sidePx)}">`,
   );
   // L'ordre de composition ci-dessous est significatif : chaque couche recouvre les précédentes.
   if (artwork !== null) push(lines, maskDefs(layout, artwork, opts));
@@ -116,40 +149,6 @@ export function renderQrSvg(modules: boolean[][], opts: RenderOpts): string {
   }
   lines.push(`</svg>`);
   return lines.join("\n") + "\n";
-}
-
-/**
- * Nombre de modules sombres réellement perdus : ceux tombant dans la boîte
- * englobante de l'illustration `--art` (heuristique, ce logo ne supprime
- * aucun module — voir `renderQrSvg`) plus ceux effacés par la zone de
- * réserve du logo central (compte exact, ce logo-là supprime vraiment des
- * modules). Sert à classer les variantes de masque : plus ce nombre est bas,
- * moins la lecture du QR est mise à l'épreuve.
- */
-export function countDarkModulesUnderArtwork(modules: boolean[][], opts: RenderOpts): number {
-  const layout = computeLayout(modules.length, opts);
-  const artwork = resolveArtwork(layout, opts);
-  const centerLogo = resolveCenterLogo(layout, opts);
-  const reserve = centerLogo === null ? null : reserveOf(centerLogo, opts);
-  if (artwork === null && reserve === null) return 0;
-
-  let count = 0;
-  for (let y = 0; y < layout.size; y++) {
-    for (let x = 0; x < layout.size; x++) {
-      if (!modules[y][x]) continue;
-      const cx = centerPx(x, layout, opts);
-      const cy = centerPx(y, layout, opts);
-
-      const underArtwork =
-        artwork !== null &&
-        cx >= artwork.boxPx.x &&
-        cx <= artwork.boxPx.x + artwork.boxPx.width &&
-        cy >= artwork.boxPx.y &&
-        cy <= artwork.boxPx.y + artwork.boxPx.height;
-      if (underArtwork || (reserve !== null && insideReserve(cx, cy, reserve))) count++;
-    }
-  }
-  return count;
 }
 
 /*---- Géométrie ----*/
@@ -272,26 +271,128 @@ function dot(x: number, y: number, layout: Layout, opts: RenderOpts): string {
 
 function finders(layout: Layout, opts: RenderOpts): string[] {
   const px = opts.modulePx;
+  const ringColor = opts.finderColor ?? opts.darkColor;
+  const pupilShape = opts.finderPupilShape ?? opts.finderShape;
   const rings: string[] = [];
   const pupils: string[] = [];
 
-  for (const [fx, fy] of finderOrigins(layout.size)) {
+  finderOrigins(layout.size).forEach(([fx, fy], index) => {
     const originX = layout.dataOriginPx + fx * px;
     const originY = layout.dataOriginPx + fy * px;
-    // Le contour fait 1 module d'épaisseur : le rect suit sa ligne médiane,
+    // Les formes asymétriques sont tournées pour que leur coin pointu tombe
+    // du côté extérieur du symbole. Le motif haut-gauche sert de référence ;
+    // les deux autres sont son quart de tour, ce qui préserve la symétrie du
+    // symbole autour de sa diagonale.
+    const turns = index === 0 ? 0 : 1;
+    // Le contour fait 1 module d'épaisseur : la forme suit sa ligne médiane,
     // d'où un demi-module de retrait sur chaque bord et un côté de 6 modules.
-    rings.push(
-      `<rect x="${num(originX + px / 2)}" y="${num(originY + px / 2)}" width="${num(6 * px)}" height="${num(6 * px)}" rx="${num(2 * px)}"/>`,
-    );
-    pupils.push(
-      `<rect x="${num(originX + 2 * px)}" y="${num(originY + 2 * px)}" width="${num(3 * px)}" height="${num(3 * px)}" rx="${num(px)}"/>`,
-    );
-  }
+    rings.push(finderMark(originX + px / 2, originY + px / 2, 6 * px, radiiOf(opts.finderShape, turns)));
+    pupils.push(finderMark(originX + 2 * px, originY + 2 * px, 3 * px, radiiOf(pupilShape, turns)));
+  });
 
   return [
-    ...group(`<g fill="none" stroke="${opts.darkColor}" stroke-width="${num(px)}">`, rings),
-    ...group(`<g fill="${opts.darkColor}">`, pupils),
+    ...group(`<g fill="none" stroke="${ringColor}" stroke-width="${num(px)}">`, rings),
+    ...group(`<g fill="${opts.finderPupilColor ?? ringColor}">`, pupils),
   ];
+}
+
+/**
+ * Rayons d'arrondi des 4 coins, en part du côté, dans le sens horaire à
+ * partir du coin haut-gauche.
+ */
+type Radii = readonly [number, number, number, number];
+
+function radiiOf(shape: FinderShape, quarterTurns: number): Radii {
+  return rotate(baseRadii(shape), quarterTurns);
+}
+
+function baseRadii(shape: FinderShape): Radii {
+  switch (shape) {
+    case "square":
+      return uniform(0);
+    case "rounded":
+      return uniform(1 / 3);
+    case "extra-rounded":
+      return uniform(2 / 5);
+    case "circle":
+      return uniform(1 / 2);
+    case "leaf":
+      // Un coin pointu, son opposé aussi, les deux autres arrondis. Le rayon
+      // s'arrête à 2/5 et non à 1/2 (le demi-cercle) : au-delà, l'arc ronge
+      // trop le contour pour que le lecteur y retrouve le rapport 1:1:3:1:1
+      // du motif de détection — testé, un demi-cercle ne décode plus sur
+      // plusieurs masques dès 800 px de rastérisation.
+      return [0, 2 / 5, 0, 2 / 5];
+  }
+}
+
+function uniform(ratio: number): Radii {
+  return [ratio, ratio, ratio, ratio];
+}
+
+/** Tourne les rayons d'un quart de tour horaire, `quarterTurns` fois. */
+function rotate(radii: Radii, quarterTurns: number): Radii {
+  // Les coins étant listés dans le sens horaire, tourner la forme revient à
+  // décaler les rayons d'autant de rangs.
+  const shift = ((quarterTurns % 4) + 4) % 4;
+  const at = (index: number): number => radii[(index - shift + 4) % 4];
+  return [at(0), at(1), at(2), at(3)];
+}
+
+/** Le carré d'un motif de détection : un `rect` si les 4 coins sont identiques, un chemin sinon. */
+function finderMark(x: number, y: number, side: number, radii: Radii): string {
+  const box = `x="${num(x)}" y="${num(y)}" width="${num(side)}" height="${num(side)}"`;
+  const [topLeft, topRight, bottomRight, bottomLeft] = radii;
+  if (topLeft === topRight && topRight === bottomRight && bottomRight === bottomLeft) {
+    return `<rect ${box} rx="${num(side * topLeft)}"/>`;
+  }
+  return `<path d="${markPath(x, y, side, radii)}"/>`;
+}
+
+/** Contour d'un carré à 4 rayons indépendants, parcouru dans le sens horaire. */
+function markPath(x: number, y: number, side: number, radii: Radii): string {
+  const [topLeft, topRight, bottomRight, bottomLeft] = radii.map((ratio) => ratio * side);
+  const right = x + side;
+  const bottom = y + side;
+  return [
+    `M${num(x + topLeft)} ${num(y)}`,
+    `H${num(right - topRight)}`,
+    arc(topRight, right, y + topRight),
+    `V${num(bottom - bottomRight)}`,
+    arc(bottomRight, right - bottomRight, bottom),
+    `H${num(x + bottomLeft)}`,
+    arc(bottomLeft, x, bottom - bottomLeft),
+    `V${num(y + topLeft)}`,
+    arc(topLeft, x + topLeft, y),
+    "Z",
+  ]
+    .filter((part) => part !== "")
+    .join(" ");
+}
+
+/** Quart de cercle horaire, ou rien du tout si le coin est pointu. */
+function arc(radius: number, x: number, y: number): string {
+  return radius === 0 ? "" : `A${num(radius)} ${num(radius)} 0 0 1 ${num(x)} ${num(y)}`;
+}
+
+/**
+ * Un motif de détection isolé, à l'usage des aperçus de l'app web : même
+ * géométrie que dans le QR (grille de 7 modules), ramenée à un carré de
+ * `sidePx` de côté et peinte dans la couleur courante du texte.
+ */
+export function finderPreviewSvg(ring: FinderShape, pupil: FinderShape, sidePx: number): string {
+  const px = sidePx / 7;
+  const side = num(sidePx);
+  return [
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${side}" height="${side}" viewBox="0 0 ${side} ${side}" aria-hidden="true">`,
+    `${INDENT}<g fill="none" stroke="currentColor" stroke-width="${num(px)}">`,
+    `${INDENT}${INDENT}${finderMark(px / 2, px / 2, 6 * px, radiiOf(ring, 0))}`,
+    `${INDENT}</g>`,
+    `${INDENT}<g fill="currentColor">`,
+    `${INDENT}${INDENT}${finderMark(2 * px, 2 * px, 3 * px, radiiOf(pupil, 0))}`,
+    `${INDENT}</g>`,
+    `</svg>`,
+  ].join("\n");
 }
 
 function maskDefs(layout: Layout, artwork: Overlay, opts: RenderOpts): string[] {

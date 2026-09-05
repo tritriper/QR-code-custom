@@ -5,12 +5,18 @@
  *
  * L'état de l'interface n'est pas dupliqué dans une structure à part : il est
  * relu depuis les contrôles du formulaire à chaque rendu. Seuls le logo
- * déposé et la variante affichée, qui ne correspondent à aucun champ, sont
+ * déposé et le masque affiché, qui ne correspondent à aucun champ, sont
  * gardés ici.
  */
 
-import { MASK_COUNT, buildVariants, parseSvg, renderVariant, toUpperUrl, type SvgFile, type Variant } from "../src/qr.js";
-import { DEFAULT_RENDER_OPTS, type RenderOpts } from "../src/render.js";
+import { MASK_COUNT, buildVariant, parseSvg, renderVariant, toUpperUrl, type SvgFile, type Variant } from "../src/qr.js";
+import {
+  DEFAULT_RENDER_OPTS,
+  FINDER_SHAPES,
+  finderPreviewSvg,
+  type FinderShape,
+  type RenderOpts,
+} from "../src/render.js";
 
 type Mode = "art" | "center" | "none";
 
@@ -19,6 +25,18 @@ const DEFAULT_LOGOS: Record<"art" | "center", string> = {
   art: "art/CF-Logo-VertFonce-Trans.svg",
   center: "art/Circle Logo.svg",
 };
+
+/** Libellés des formes de coins, pour l'infobulle et les lecteurs d'écran. */
+const SHAPE_LABELS: Record<FinderShape, string> = {
+  square: "Carrés",
+  rounded: "Arrondis",
+  "extra-rounded": "Très arrondis",
+  circle: "Ronds",
+  leaf: "Feuille",
+};
+
+/** Côté d'un aperçu de forme, en px. */
+const SHAPE_PREVIEW_PX = 22;
 
 /** Au-delà, le SVG produit devient lourd : le logo y est recopié jusqu'à 3 fois. */
 const HEAVY_LOGO_BYTES = 200_000;
@@ -33,8 +51,8 @@ interface Upload {
 
 const cache = new Map<string, SvgFile>();
 let upload: Upload | null = null;
-/** Rang de la variante affichée : 0 = la mieux classée. */
-let variantRank = 0;
+/** Masque affiché, de 0 à 7. « Régénérer » passe au suivant. */
+let mask = 0;
 /** Dernier SVG affiché, tel qu'il sera téléchargé. */
 let currentSvg = "";
 /** Évite qu'un rendu lancé avant un autre écrase son résultat au retour d'un await. */
@@ -50,11 +68,18 @@ const ui = {
   form: el<HTMLFormElement>("#controls"),
   url: el<HTMLInputElement>("#url"),
   color: el<HTMLInputElement>("#color"),
+  shapes: el<HTMLDivElement>("#finder-shape"),
+  pupilShapes: el<HTMLDivElement>("#finder-pupil-shape"),
+  pupilSame: el<HTMLInputElement>("#pupil-same"),
+  pupilRow: el<HTMLDivElement>("#pupil-shape-row"),
+  finderColor: el<HTMLInputElement>("#finder-color"),
+  finderPupilColor: el<HTMLInputElement>("#finder-pupil-color"),
+  finderSame: el<HTMLInputElement>("#finder-same"),
   artColor: el<HTMLInputElement>("#art-color"),
   centerColor: el<HTMLInputElement>("#center-color"),
   keepColors: el<HTMLInputElement>("#keep-colors"),
   dotSize: el<HTMLInputElement>("#dot-size"),
-  spacing: el<HTMLInputElement>("#spacing"),
+  density: el<HTMLInputElement>("#density"),
   artScale: el<HTMLInputElement>("#art-scale"),
   centerScale: el<HTMLInputElement>("#center-scale"),
   thicken: el<HTMLInputElement>("#thicken"),
@@ -65,9 +90,8 @@ const ui = {
   reset: el<HTMLButtonElement>("#logo-reset"),
   logoName: el<HTMLParagraphElement>("#logo-name"),
   preview: el<HTMLDivElement>("#preview"),
-  variantLabel: el<HTMLSpanElement>("#variant-label"),
-  prev: el<HTMLButtonElement>("#prev"),
-  next: el<HTMLButtonElement>("#next"),
+  variantLabel: el<HTMLParagraphElement>("#variant-label"),
+  regenerate: el<HTMLButtonElement>("#regenerate"),
   download: el<HTMLButtonElement>("#download"),
   messages: el<HTMLDivElement>("#messages"),
 };
@@ -78,6 +102,18 @@ function mode(): Mode {
   return (new FormData(ui.form).get("mode") as Mode | null) ?? "art";
 }
 
+function finderShape(): FinderShape {
+  return (new FormData(ui.form).get("finder-shape") as FinderShape | null) ?? DEFAULT_RENDER_OPTS.finderShape;
+}
+
+function finderPupilShape(): FinderShape {
+  return (new FormData(ui.form).get("finder-pupil-shape") as FinderShape | null) ?? finderShape();
+}
+
+function outputPx(): number {
+  return Number(new FormData(ui.form).get("size") ?? DEFAULT_RENDER_OPTS.outputPx);
+}
+
 function renderOpts(logo: SvgFile | null): RenderOpts {
   const current = mode();
   const keepOriginal = ui.keepColors.checked;
@@ -85,7 +121,13 @@ function renderOpts(logo: SvgFile | null): RenderOpts {
     ...DEFAULT_RENDER_OPTS,
     darkColor: ui.color.value,
     dotPx: Number(ui.dotSize.value),
-    modulePx: Number(ui.spacing.value),
+    outputPx: outputPx(),
+    finderShape: finderShape(),
+    // Case cochée : sans forme propre, le centre des coins suit leur contour.
+    finderPupilShape: ui.pupilSame.checked ? undefined : finderPupilShape(),
+    // Cases décochées seulement : sans couleur propre, les coins suivent celle des points.
+    finderColor: ui.finderSame.checked ? undefined : ui.finderColor.value,
+    finderPupilColor: ui.finderSame.checked ? undefined : ui.finderPupilColor.value,
     artworkScale: Number(ui.artScale.value) / 100,
     artworkThickenPx: Number(ui.thicken.value),
     artworkColor: ui.artColor.value,
@@ -106,6 +148,13 @@ function warnings(current: Mode): string[] {
   }
   if (current === "center" && Number(ui.centerScale.value) > 30) {
     list.push(`À ${ui.centerScale.value} %, le logo efface une grande zone du QR code : vérifie bien le décodage.`);
+  }
+  // Même constat que le CLI (voir `parseOptions` et AGENTS.md) : le contour
+  // rond ne supporte pas un centre anguleux.
+  if (finderShape() === "circle" && !ui.pupilSame.checked && finderPupilShape() !== "circle") {
+    list.push(
+      "Un contour de coin rond avec un centre d'une autre forme se lit mal : les scanners ratent souvent le QR code. Garde un centre rond, ou choisis un autre contour.",
+    );
   }
   if (current !== "none" && upload !== null && upload.bytes > HEAVY_LOGO_BYTES) {
     list.push(
@@ -156,16 +205,52 @@ async function render(): Promise<void> {
     if (token !== renderToken) return;
 
     const opts = renderOpts(logo);
-    const ranked = buildVariants(text, opts).sort((a, b) => a.collisions - b.collisions);
-    variantRank = Math.min(Math.max(variantRank, 0), ranked.length - 1);
+    const variant = buildVariant(text, mask, Number(ui.density.value));
 
-    currentSvg = renderVariant(ranked[variantRank], opts);
+    currentSvg = renderVariant(variant, opts);
     ui.preview.innerHTML = currentSvg;
-    showVariant(ranked[variantRank], ranked.length);
+    showVariant(variant);
     show(notes, null);
   } catch (error) {
     if (token !== renderToken) return;
     show(notes, error instanceof Error ? error.message : String(error));
+  }
+}
+
+/**
+ * Remplit un groupe de boutons radio avec une forme de coin par bouton.
+ * L'aperçu est dessiné par `render.ts` lui-même : la liste des formes et leur
+ * dessin ne peuvent pas diverger de ce que produit le QR.
+ */
+function buildShapeGroup(container: HTMLElement, name: string, checked: FinderShape): void {
+  for (const shape of FINDER_SHAPES) {
+    const label = document.createElement("label");
+    label.title = SHAPE_LABELS[shape];
+
+    const input = document.createElement("input");
+    input.type = "radio";
+    input.name = name;
+    input.value = shape;
+    input.checked = shape === checked;
+    input.setAttribute("aria-label", SHAPE_LABELS[shape]);
+
+    const preview = document.createElement("span");
+    preview.innerHTML = finderPreviewSvg(shape, shape, SHAPE_PREVIEW_PX);
+
+    label.append(input, preview);
+    container.append(label);
+  }
+}
+
+/**
+ * Redessine les aperçus du centre avec le contour réellement choisi : c'est
+ * l'association des deux formes qui se juge, pas le centre seul.
+ */
+function refreshPupilPreviews(): void {
+  const ring = finderShape();
+  for (const input of ui.pupilShapes.querySelectorAll<HTMLInputElement>("input")) {
+    const preview = input.nextElementSibling;
+    if (preview !== null) preview.innerHTML = finderPreviewSvg(ring, input.value as FinderShape, SHAPE_PREVIEW_PX);
   }
 }
 
@@ -176,9 +261,11 @@ function showRows(current: Mode): void {
   }
 }
 
-function showVariant(variant: Variant, total: number): void {
-  ui.variantLabel.textContent = `Variante ${variantRank + 1} sur ${total}`;
-  ui.variantLabel.title = `masque ${variant.mask}, version ${variant.version} (${variant.size}×${variant.size})`;
+function showVariant(variant: Variant): void {
+  // La grille est affichée telle qu'obtenue, pas telle que demandée : la
+  // densité n'est qu'un plancher (voir `buildVariant`).
+  ui.variantLabel.textContent = `Grille ${variant.size}×${variant.size}`;
+  ui.variantLabel.title = `masque ${variant.mask}, version ${variant.version}`;
 }
 
 function show(notes: string[], error: string | null): void {
@@ -226,20 +313,21 @@ let timer: ReturnType<typeof setTimeout> | undefined;
 
 ui.form.addEventListener("input", () => {
   // Le retour visuel des curseurs et des styles est immédiat ; seul le rendu,
-  // qui reconstruit les 8 variantes, attend une pause dans la saisie.
+  // qui réencode et reconstruit le SVG, attend une pause dans la saisie.
   syncOutputs();
   showRows(mode());
+  ui.pupilRow.hidden = ui.pupilSame.checked;
+  refreshPupilPreviews();
   clearTimeout(timer);
   timer = setTimeout(() => void render(), DEBOUNCE_MS);
 });
 
-ui.prev.addEventListener("click", () => {
-  variantRank = Math.max(0, variantRank - 1);
-  void render();
-});
-
-ui.next.addEventListener("click", () => {
-  variantRank = Math.min(MASK_COUNT - 1, variantRank + 1);
+// Un autre masque que celui affiché, tiré au hasard parmi les 7 restants :
+// « régénérer » doit donner un dessin différent, pas dérouler une liste. Le
+// tirage porte sur un décalage de 1 à 7, jamais 0, donc le dessin change
+// toujours.
+ui.regenerate.addEventListener("click", () => {
+  mask = (mask + 1 + Math.floor(Math.random() * (MASK_COUNT - 1))) % MASK_COUNT;
   void render();
 });
 
@@ -300,5 +388,8 @@ async function loadUpload(file: File): Promise<void> {
   await render();
 }
 
+buildShapeGroup(ui.shapes, "finder-shape", DEFAULT_RENDER_OPTS.finderShape);
+buildShapeGroup(ui.pupilShapes, "finder-pupil-shape", DEFAULT_RENDER_OPTS.finderShape);
+refreshPupilPreviews();
 syncOutputs();
 void render();
