@@ -5,7 +5,7 @@
  */
 
 import qrcodegen from "./generated/qrcodegen.js";
-import { countDarkModulesUnderArtwork, renderQrSvg, type RenderOpts } from "./render.js";
+import { renderQrSvg, type RenderOpts } from "./render.js";
 
 /** Contenu interne et viewBox d'un fichier SVG source. */
 export interface SvgFile {
@@ -15,37 +15,38 @@ export interface SvgFile {
 
 /**
  * Une des 8 variantes de masque du même contenu. Le SVG n'est volontairement
- * pas inclus : le construire coûte cher (le logo est inliné jusqu'à 3 fois),
- * alors que le classement des variantes n'a besoin que de `collisions`.
- * Voir `renderVariant`.
+ * pas inclus : le construire coûte cher (le logo y est inliné jusqu'à 3 fois),
+ * alors que la matrice ne dépend d'aucune option de rendu. Voir
+ * `renderVariant`.
  */
 export interface Variant {
   mask: number;
   version: number;
   size: number;
   modules: boolean[][];
-  /** Modules sombres sous les overlays : plus c'est bas, plus le logo ressort. */
-  collisions: number;
 }
 
 export const MASK_COUNT = 8;
 
-/** Encode les 8 masques du même texte et évalue chacun. */
-export function buildVariants(text: string, opts: RenderOpts): Variant[] {
-  const variants: Variant[] = [];
-  for (let mask = 0; mask < MASK_COUNT; mask++) {
-    const segments = qrcodegen.QrSegment.makeSegments(text);
-    const qr = qrcodegen.QrCode.encodeSegments(segments, qrcodegen.QrCode.Ecc.HIGH, 1, 40, mask, true);
-    const modules = toMatrix(qr);
-    variants.push({
-      mask,
-      version: qr.version,
-      size: qr.size,
-      modules,
-      collisions: countDarkModulesUnderArtwork(modules, opts),
-    });
-  }
-  return variants;
+/**
+ * Bornes de la densité, c'est-à-dire de la version minimale du symbole : le
+ * côté de la grille vaut `4 × version + 17` modules. Au-delà de 12 (65×65),
+ * les points deviennent trop fins pour une impression courante.
+ */
+export const MIN_DENSITY = 1;
+export const MAX_DENSITY = 12;
+
+/**
+ * Encode un seul masque du texte, celui demandé. Les 8 masques sont tous
+ * valides et donnent le même contenu : ils ne changent que le dessin, d'où le
+ * bouton « Régénérer » de l'app web et `--mask` en CLI. `density` est un
+ * plancher, pas une consigne : un texte long impose une version plus élevée
+ * que celle demandée.
+ */
+export function buildVariant(text: string, mask: number, density: number): Variant {
+  const segments = qrcodegen.QrSegment.makeSegments(text);
+  const qr = qrcodegen.QrCode.encodeSegments(segments, qrcodegen.QrCode.Ecc.HIGH, density, 40, mask, true);
+  return { mask, version: qr.version, size: qr.size, modules: toMatrix(qr) };
 }
 
 export function renderVariant(variant: Variant, opts: RenderOpts): string {

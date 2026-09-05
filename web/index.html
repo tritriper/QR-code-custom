@@ -51,8 +51,20 @@
           <section class="group">
             <h2>Couleurs</h2>
             <label class="field row">
-              <span class="label">Points et coins</span>
+              <span class="label">Points</span>
               <input class="swatch inset" type="color" id="color" value="#000000" />
+            </label>
+            <label class="field row">
+              <span class="label">Contour des coins</span>
+              <input class="swatch inset" type="color" id="finder-color" value="#000000" />
+            </label>
+            <label class="field row">
+              <span class="label">Centre des coins</span>
+              <input class="swatch inset" type="color" id="finder-pupil-color" value="#000000" />
+            </label>
+            <label class="field check">
+              <input type="checkbox" id="finder-same" checked />
+              <span class="label">Coins de la même couleur que les points</span>
             </label>
             <label class="field row" data-modes="art">
               <span class="label">Logo</span>
@@ -75,9 +87,25 @@
               <input class="range" type="range" id="dot-size" min="1" max="12" step="0.5" value="5" />
             </label>
             <label class="field">
-              <span class="label">Espacement <output data-for="spacing"></output></span>
-              <input class="range" type="range" id="spacing" min="4" max="20" step="1" value="10" />
+              <span class="label">Densité des points <output data-for="density"></output></span>
+              <input class="range" type="range" id="density" min="1" max="12" step="1" value="1" />
             </label>
+            <p class="hint">Plus la densité est élevée, plus les points sont nombreux et fins. C'est un minimum : une adresse longue en impose parfois plus.</p>
+            <div class="field">
+              <span class="label">Forme des coins</span>
+              <!-- Les boutons sont construits par main.ts, à partir de la liste des
+                   formes de render.ts : leur aperçu est dessiné par le moteur de rendu
+                   lui-même, donc toujours fidèle au résultat. -->
+              <div class="segmented inset shapes" id="finder-shape" role="radiogroup" aria-label="Forme des coins"></div>
+            </div>
+            <label class="field check">
+              <input type="checkbox" id="pupil-same" checked />
+              <span class="label">Centre des coins de la même forme</span>
+            </label>
+            <div class="field" id="pupil-shape-row" hidden>
+              <span class="label">Forme du centre des coins</span>
+              <div class="segmented inset shapes" id="finder-pupil-shape" role="radiogroup" aria-label="Forme du centre des coins"></div>
+            </div>
             <label class="field" data-modes="art">
               <span class="label">Taille du logo <output data-for="art-scale" data-unit=" %"></output></span>
               <input class="range" type="range" id="art-scale" min="50" max="200" step="5" value="140" />
@@ -90,6 +118,17 @@
               <span class="label">Épaisseur du trait du logo <output data-for="thicken"></output></span>
               <input class="range" type="range" id="thicken" min="0" max="4" step="0.25" value="1" />
             </label>
+          </section>
+
+          <section class="group">
+            <h2>Fichier</h2>
+            <div class="segmented inset four" role="radiogroup" aria-label="Taille du fichier">
+              <label><input type="radio" name="size" value="512" /><span>512 px</span></label>
+              <label><input type="radio" name="size" value="1024" checked /><span>1024 px</span></label>
+              <label><input type="radio" name="size" value="2048" /><span>2048 px</span></label>
+              <label><input type="radio" name="size" value="4096" /><span>4096 px</span></label>
+            </div>
+            <p class="hint">Le SVG reste net à n'importe quelle taille : ce réglage fixe seulement la taille d'affichage du fichier, utile à l'import dans Canva, Word ou une imprimerie.</p>
           </section>
 
           <details class="group advanced">
@@ -107,11 +146,10 @@
             <div class="preview inset" id="preview"></div>
 
             <div class="variants">
-              <button type="button" class="btn raised nav" id="prev" aria-label="Variante précédente">‹</button>
-              <span class="variant-label" id="variant-label" aria-live="polite">Variante 1 sur 8</span>
-              <button type="button" class="btn raised nav" id="next" aria-label="Variante suivante">›</button>
+              <button type="button" class="btn raised" id="regenerate">Régénérer</button>
             </div>
-            <p class="hint center">8 versions du même QR code, classées de la plus lisible à la moins lisible.</p>
+            <p class="hint center" id="variant-label" aria-live="polite">&nbsp;</p>
+            <p class="hint center">« Régénérer » redessine le même lien autrement, sans changer ce qu'il contient.</p>
 
             <button type="button" class="btn raised primary" id="download">Télécharger le SVG</button>
           </div>

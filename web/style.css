@@ -134,6 +134,11 @@ h2 {
   margin-top: 16px;
 }
 
+/* Un réglage qui suit une explication : même respiration qu'entre deux réglages. */
+.hint + .field {
+  margin-top: 16px;
+}
+
 .label {
   display: block;
   margin-bottom: 7px;
@@ -200,6 +205,25 @@ output {
   grid-template-columns: repeat(3, 1fr);
   gap: 5px;
   padding: 5px;
+}
+
+.segmented.four {
+  grid-template-columns: repeat(4, 1fr);
+}
+
+.segmented.shapes {
+  grid-template-columns: repeat(5, 1fr);
+}
+
+/* Les aperçus de forme sont peints en `currentColor` : ils suivent donc la
+   couleur du libellé, muette au repos et accentuée une fois sélectionnés. */
+.segmented.shapes span {
+  padding: 8px 4px;
+}
+
+.segmented svg {
+  display: block;
+  margin: 0 auto;
 }
 
 .segmented label {
@@ -378,14 +402,6 @@ input[type="checkbox"]:checked {
   color: var(--accent);
 }
 
-.btn.nav {
-  width: 42px;
-  padding: 8px 0;
-  font-size: 1.3rem;
-  line-height: 1;
-  border-radius: 50%;
-}
-
 /*---- Aperçu ----*/
 
 .preview-card {
@@ -424,12 +440,6 @@ input[type="checkbox"]:checked {
   margin-top: 18px;
 }
 
-.variant-label {
-  font-size: 0.9rem;
-  font-weight: 600;
-  min-width: 11ch;
-  text-align: center;
-}
 
 /*---- Messages ----*/
 
