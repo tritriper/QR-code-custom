@@ -18,6 +18,7 @@ import {
   PRESET_NAMES,
   dotPreviewSvg,
   finderPreviewSvg,
+  matchingFinderShape,
   presetPreviewSvg,
   type DotShape,
   type FinderShape,
@@ -80,6 +81,9 @@ const DOT_PREVIEW_PX = 30;
 /** Sous cette taille de point, les losanges se décodent mal (même seuil que le CLI). */
 const DIAMOND_MIN_DOT_SIZE = 5;
 
+/** Sous cette taille de point, un contour de coin rond se détecte mal (même seuil que le CLI). */
+const CIRCLE_FINDER_MIN_DOT_SIZE = 5;
+
 /** Au-delà, le SVG produit devient lourd : le logo y est recopié jusqu'à 3 fois. */
 const HEAVY_LOGO_BYTES = 200_000;
 
@@ -114,6 +118,8 @@ const ui = {
   dotShapes: el<HTMLDivElement>("#dot-shape"),
   shapes: el<HTMLDivElement>("#finder-shape"),
   pupilShapes: el<HTMLDivElement>("#finder-pupil-shape"),
+  finderMatch: el<HTMLInputElement>("#finder-match"),
+  finderShapeRow: el<HTMLDivElement>("#finder-shape-row"),
   pupilSame: el<HTMLInputElement>("#pupil-same"),
   pupilRow: el<HTMLDivElement>("#pupil-shape-row"),
   finderColor: el<HTMLInputElement>("#finder-color"),
@@ -151,6 +157,11 @@ function dotShape(): DotShape {
 }
 
 function finderShape(): FinderShape {
+  // Case cochée : la forme des coins est déduite de celle des points et les
+  // boutons de coin sont masqués. Déduite à chaque lecture plutôt que recopiée
+  // dans les boutons : décocher la case doit rendre le choix précédent, pas
+  // celui que la case aurait imposé entre-temps.
+  if (ui.finderMatch.checked) return matchingFinderShape(dotShape());
   return (new FormData(ui.form).get("finder-shape") as FinderShape | null) ?? DEFAULT_RENDER_OPTS.finderShape;
 }
 
@@ -210,6 +221,13 @@ function warnings(current: Mode): string[] {
   if (dotShape() === "diamond" && Number(ui.dotSize.value) < DIAMOND_MIN_DOT_SIZE) {
     list.push(
       `Des losanges aussi petits posent peu d'encre : le QR code se lira mal une fois imprimé en petit. Monte la taille des points au-dessus de ${DIAMOND_MIN_DOT_SIZE}, ou choisis une autre forme.`,
+    );
+  }
+  // Même seuil que le CLI : le contour rond est fin sur ses diagonales, et des
+  // points fins autour lui retirent ses repères.
+  if (finderShape() === "circle" && Number(ui.dotSize.value) < CIRCLE_FINDER_MIN_DOT_SIZE) {
+    list.push(
+      `Des coins ronds avec des points aussi fins se détectent mal : beaucoup de scanners ratent le QR code. Monte la taille des points au-dessus de ${CIRCLE_FINDER_MIN_DOT_SIZE}, ou choisis une autre forme de coins.`,
     );
   }
   if (current !== "none" && upload !== null && upload.bytes > HEAVY_LOGO_BYTES) {
@@ -309,6 +327,9 @@ function applyPreset(name: PresetName): void {
   ui.dotSize.value = String(preset.dotPx);
   check(ui.dotShapes, preset.dotShape);
   check(ui.shapes, preset.finderShape);
+  // Un préréglage choisit lui-même la forme des coins — « Fluide » a des
+  // points soudés et des coins très arrondis, que la case ne donnerait pas.
+  ui.finderMatch.checked = false;
 }
 
 function check(container: HTMLElement, value: string): void {
@@ -469,6 +490,7 @@ ui.form.addEventListener("input", () => {
   syncOutputs();
   syncPresetSelection();
   showRows(mode());
+  ui.finderShapeRow.hidden = ui.finderMatch.checked;
   ui.pupilRow.hidden = ui.pupilSame.checked;
   refreshPupilPreviews();
   clearTimeout(timer);

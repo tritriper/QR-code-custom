@@ -500,7 +500,8 @@ input[type="checkbox"]:checked {
 
 /*---- Options avancées ----*/
 
-.advanced summary {
+.advanced summary,
+.tweaks summary {
   font-size: 0.78rem;
   font-weight: 700;
   letter-spacing: 0.12em;
@@ -509,6 +510,21 @@ input[type="checkbox"]:checked {
   cursor: pointer;
 }
 
-.advanced[open] summary {
+.advanced[open] summary,
+.tweaks[open] summary {
   margin-bottom: 14px;
+}
+
+/* Le tiroir des formes est à l'intérieur d'une section, sous son titre : son
+   résumé se distingue donc du titre par la casse et un chevron, pas par le
+   même style que les sections. */
+.tweaks summary {
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 0.9rem;
+  color: var(--text);
+}
+
+.tweaks + .field {
+  margin-top: 16px;
 }

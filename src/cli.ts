@@ -78,6 +78,13 @@ interface Options {
  */
 const DIAMOND_MIN_DOT_SIZE = 5;
 
+/**
+ * Sous cette taille de point, un contour de coin rond ne se détecte plus de
+ * façon fiable (voir AGENTS.md). Seuil dupliqué dans `warnings()` de
+ * `web/main.ts`.
+ */
+const CIRCLE_FINDER_MIN_DOT_SIZE = 5;
+
 /** SVG de l'association, à jour dans la charte : trait vert foncé. */
 const DEFAULT_ART = "art/CF-Logo-VertFonce-Trans.svg";
 /** Couleur de l'illustration par défaut : vert foncé de la charte Collecti'FROG. */
@@ -276,6 +283,17 @@ function parseOptions(): Options {
       "Attention : un contour de coin rond avec un centre d'une autre forme se détecte mal" +
         " (jamais décodé avec --finder-pupil-shape square dans nos essais). Garde un centre rond" +
         " ou change de contour, et vérifie le décodage.",
+    );
+  }
+
+  // Le contour rond est déjà fin sur ses diagonales ; des points fins autour
+  // lui retirent les repères dont le lecteur se sert. Mesuré (voir AGENTS.md) :
+  // 24/32 seulement à --dot-size 4, contre 32/32 à partir de 5.
+  if (finderShape === "circle" && dotSize < CIRCLE_FINDER_MIN_DOT_SIZE) {
+    console.warn(
+      `Attention : des coins ronds avec des points à --dot-size ${dotSize} se détectent mal` +
+        ` (24 décodages sur 32 dans nos essais). Reste au-dessus de ${CIRCLE_FINDER_MIN_DOT_SIZE},` +
+        " ou choisis un autre contour de coin.",
     );
   }
 

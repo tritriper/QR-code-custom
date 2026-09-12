@@ -161,6 +161,12 @@ npx tsx src/cli.ts --url "https://collecti-frog.fr" \
   --finder-shape leaf --finder-pupil-shape circle
 ```
 
+**À savoir sur les coins ronds** : `--finder-shape circle` demande des points
+d'au moins `--dot-size 5`. Le contour rond est déjà fin sur ses diagonales, et
+des points fins autour lui retirent les repères dont les scanners se servent —
+mesuré, 24 décodages sur 32 seulement à `--dot-size 4`. L'outil affiche un
+avertissement en dessous de 5.
+
 **À savoir sur `bars` et `connected`** : ces deux formes soudent les points
 voisins. `--dot-size` y règle alors l'épaisseur du trait — à `10` le tracé est
 plein, en dessous on obtient un chapelet de points reliés. C'est aussi avec

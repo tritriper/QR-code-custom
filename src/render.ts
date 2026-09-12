@@ -48,6 +48,35 @@ type IsolatedDotShape = (typeof ISOLATED_DOT_SHAPES)[number];
  */
 type Drawn = readonly (readonly boolean[])[];
 
+/**
+ * Forme de coin qui va avec chaque forme de point, pour la case « Coins
+ * assortis aux points » de l'app web.
+ *
+ * Vit ici et non dans `web/main.ts` parce que c'est une correspondance entre
+ * deux listes de `render.ts`, et parce que trois formes de points n'ont pas
+ * d'équivalent exact côté coins — un motif de détection doit garder le rapport
+ * 1:1:3:1:1 que les lecteurs y cherchent :
+ *
+ * - `diamond` → `square` : un losange est un carré tourné, c'est la forme
+ *   anguleuse la plus proche ;
+ * - `bars` → `rounded` : les capsules ont des bouts arrondis ;
+ * - `connected` → `extra-rounded`, l'arrondi le plus franc qui reste sûr.
+ */
+const MATCHING_FINDER: Record<DotShape, FinderShape> = {
+  circle: "circle",
+  rounded: "rounded",
+  "extra-rounded": "extra-rounded",
+  square: "square",
+  leaf: "leaf",
+  diamond: "square",
+  bars: "rounded",
+  connected: "extra-rounded",
+};
+
+export function matchingFinderShape(shape: DotShape): FinderShape {
+  return MATCHING_FINDER[shape];
+}
+
 export interface RenderOpts {
   darkColor: string;
   lightColor: string;

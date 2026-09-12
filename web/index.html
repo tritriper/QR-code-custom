@@ -90,34 +90,45 @@
 
           <section class="group">
             <h2>Forme</h2>
-            <label class="field">
-              <span class="label">Taille des points <output data-for="dot-size"></output></span>
-              <input class="range" type="range" id="dot-size" min="1" max="12" step="0.5" value="5" />
-            </label>
-            <label class="field">
-              <span class="label">Densité des points <output data-for="density"></output></span>
-              <input class="range" type="range" id="density" min="1" max="12" step="1" value="1" />
-            </label>
-            <p class="hint">Plus la densité est élevée, plus les points sont nombreux et fins. C'est un minimum : une adresse longue en impose parfois plus.</p>
-            <div class="field">
-              <span class="label">Forme des points</span>
-              <div class="segmented inset shapes eight" id="dot-shape" role="radiogroup" aria-label="Forme des points"></div>
-            </div>
-            <div class="field">
-              <span class="label">Forme des coins</span>
-              <!-- Les boutons sont construits par main.ts, à partir de la liste des
-                   formes de render.ts : leur aperçu est dessiné par le moteur de rendu
-                   lui-même, donc toujours fidèle au résultat. -->
-              <div class="segmented inset shapes" id="finder-shape" role="radiogroup" aria-label="Forme des coins"></div>
-            </div>
-            <label class="field check">
-              <input type="checkbox" id="pupil-same" checked />
-              <span class="label">Centre des coins de la même forme</span>
-            </label>
-            <div class="field" id="pupil-shape-row" hidden>
-              <span class="label">Forme du centre des coins</span>
-              <div class="segmented inset shapes" id="finder-pupil-shape" role="radiogroup" aria-label="Forme du centre des coins"></div>
-            </div>
+            <!-- Les réglages des points et des coins vivent dans un tiroir : un
+                 préréglage suffit à la plupart des usages, et les sortir tous
+                 ferait une section de sept contrôles. Ceux du logo restent
+                 dehors, ils ne dépendent pas du préréglage choisi. -->
+            <details class="tweaks">
+              <summary>Ajuster les points et les coins</summary>
+              <label class="field">
+                <span class="label">Taille des points <output data-for="dot-size"></output></span>
+                <input class="range" type="range" id="dot-size" min="1" max="12" step="0.5" value="5" />
+              </label>
+              <label class="field">
+                <span class="label">Densité des points <output data-for="density"></output></span>
+                <input class="range" type="range" id="density" min="1" max="12" step="1" value="1" />
+              </label>
+              <p class="hint">Plus la densité est élevée, plus les points sont nombreux et fins. C'est un minimum : une adresse longue en impose parfois plus.</p>
+              <div class="field">
+                <span class="label">Forme des points</span>
+                <div class="segmented inset shapes eight" id="dot-shape" role="radiogroup" aria-label="Forme des points"></div>
+              </div>
+              <label class="field check">
+                <input type="checkbox" id="finder-match" />
+                <span class="label">Coins assortis aux points</span>
+              </label>
+              <div class="field" id="finder-shape-row">
+                <span class="label">Forme des coins</span>
+                <!-- Les boutons sont construits par main.ts, à partir de la liste des
+                     formes de render.ts : leur aperçu est dessiné par le moteur de rendu
+                     lui-même, donc toujours fidèle au résultat. -->
+                <div class="segmented inset shapes" id="finder-shape" role="radiogroup" aria-label="Forme des coins"></div>
+              </div>
+              <label class="field check">
+                <input type="checkbox" id="pupil-same" checked />
+                <span class="label">Centre des coins de la même forme</span>
+              </label>
+              <div class="field" id="pupil-shape-row" hidden>
+                <span class="label">Forme du centre des coins</span>
+                <div class="segmented inset shapes" id="finder-pupil-shape" role="radiogroup" aria-label="Forme du centre des coins"></div>
+              </div>
+            </details>
             <label class="field" data-modes="art">
               <span class="label">Taille du logo <output data-for="art-scale" data-unit=" %"></output></span>
               <input class="range" type="range" id="art-scale" min="50" max="200" step="5" value="140" />

@@ -323,6 +323,39 @@ support du raster, style par style.
   de `--color` (comme c'était le cas dans une version antérieure), changer la
   couleur des modules changerait aussi celle du logo sans le vouloir.
 
+### Le tiroir des formes et la case « Coins assortis aux points »
+
+Deux commodités d'interface qui ne changent rien au rendu, mais qui décident
+de ce que l'app montre.
+
+- **Le tiroir** (`<details class="tweaks">` dans la section *Forme*) contient
+  taille et densité des points, les deux rangées de formes et leurs cases. Les
+  réglages du **logo** restent dehors : ils ne dépendent pas du préréglage
+  choisi, et les enfermer avec le reste les rendrait introuvables au moment où
+  on vient justement de déposer un logo. Fermé par défaut — un préréglage suffit
+  à la plupart des usages.
+- **La case « Coins assortis »** n'a pas d'équivalent CLI, comme
+  « Centre des coins de la même forme » avant elle : son pendant en ligne de
+  commande, c'est d'écrire `--finder-shape` soi-même. Ce n'est pas une
+  fonctionnalité de rendu, donc pas une entorse à la règle des deux entrées.
+- **La correspondance vit dans `render.ts`** (`MATCHING_FINDER` /
+  `matchingFinderShape()`) et non dans `web/main.ts` : c'est une table entre
+  deux listes de `render.ts`. Trois formes de points n'ont pas d'équivalent
+  côté coins, un motif de détection devant garder le rapport 1:1:3:1:1 —
+  `diamond` → `square` (un losange est un carré tourné), `bars` → `rounded`
+  (bouts de capsule arrondis), `connected` → `extra-rounded`.
+- **`finderShape()` déduit, ne recopie pas.** Case cochée, la forme est
+  calculée à chaque lecture depuis celle des points, et les boutons de coin
+  sont masqués sans être touchés : décocher rend le choix d'avant, pas celui
+  que la case aurait imposé entre-temps. `applyPreset()` décoche la case, un
+  préréglage choisissant lui-même ses coins (« Fluide » : points soudés, coins
+  très arrondis — la case donnerait la même chose ici, mais pas pour tous).
+- **Avertissement contour rond + points fins**, dupliqué `parseOptions()` /
+  `warnings()` comme les autres. Mesuré : coins ronds et points ronds donnent
+  20/32 à `--dot-size 3,5`, 24/32 à 4, 31/32 à 4,5 et 32/32 à partir de 5. La
+  case « Coins assortis » rend cette combinaison atteignable en deux clics
+  depuis « Minimal », d'où l'avertissement plutôt qu'une simple note.
+
 ### Préréglages (`PRESETS`, `--preset`, galerie web)
 
 `PRESETS` vit dans `render.ts` et est la **seule** définition des six
