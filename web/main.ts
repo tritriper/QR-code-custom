@@ -48,8 +48,15 @@ const DOT_SHAPE_LABELS: Record<DotShape, string> = {
   diamond: "Losanges",
 };
 
-/** Côté d'un aperçu de forme, en px. */
+/** Côté d'un aperçu de forme de coin, en px. */
 const SHAPE_PREVIEW_PX = 22;
+
+/**
+ * Côté d'un aperçu de forme de point, en px. Plus grand que celui des coins :
+ * un coin est un dessin unique qui remplit sa vignette, un point n'en occupe
+ * qu'une fraction, et à 22 px `rounded` et `extra-rounded` s'y confondaient.
+ */
+const DOT_PREVIEW_PX = 30;
 
 /** Sous cette taille de point, les losanges se décodent mal (même seuil que le CLI). */
 const DIAMOND_MIN_DOT_SIZE = 5;
@@ -264,7 +271,7 @@ function buildDotShapeGroup(container: HTMLElement, checked: DotShape): void {
     input.setAttribute("aria-label", DOT_SHAPE_LABELS[shape]);
 
     const preview = document.createElement("span");
-    preview.innerHTML = dotPreviewSvg(shape, SHAPE_PREVIEW_PX);
+    preview.innerHTML = dotPreviewSvg(shape, DOT_PREVIEW_PX);
 
     label.append(input, preview);
     container.append(label);

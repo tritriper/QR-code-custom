@@ -436,20 +436,25 @@ export function finderPreviewSvg(ring: FinderShape, pupil: FinderShape, sidePx: 
 }
 
 /**
- * Damier servant d'aperçu aux formes de points : un quinconce de 5 points sur
- * 3 modules, où la forme se lit sans qu'aucun point n'en touche un autre —
- * ce qui est le cas dans le QR, chaque point étant dessiné indépendamment de
- * ses voisins. Volontairement grossier : la vignette ne fait que 22 px de
- * côté, une trame plus fine n'y montrerait plus rien.
+ * Damier servant d'aperçu aux formes de points : deux points en diagonale sur
+ * 2 modules. La forme s'y lit sans qu'aucun point n'en touche un autre — ce
+ * qui est le cas dans le QR, chaque point étant dessiné indépendamment de ses
+ * voisins.
+ *
+ * Deux points et pas davantage : sur une vignette de 30 px, une trame plus
+ * fine ne laissait plus distinguer `rounded` de `extra-rounded`, dont les
+ * rayons ne diffèrent que d'un quinzième de côté. Le damier reste préférable
+ * à un point unique, qui ressemblerait à une pastille de couleur plutôt qu'à
+ * des points.
  */
-const DOT_PREVIEW_SIDE = 3;
+const DOT_PREVIEW_SIDE = 2;
 
 /**
  * Un échantillon de points isolé, à l'usage des aperçus de l'app web : même
- * fonction de dessin que dans le QR, sur une grille de 4 modules ramenée à un
+ * fonction de dessin que dans le QR, sur une grille de 2 modules ramenée à un
  * carré de `sidePx` de côté et peinte dans la couleur courante du texte.
  *
- * Les points y sont volontairement plus gros que le défaut (0,8 module contre
+ * Les points y sont volontairement plus gros que le défaut (0,82 module contre
  * 0,5) : c'est la forme qui se juge sur une vignette, pas la taille, réglée à
  * part par `dotPx`.
  */
@@ -460,7 +465,7 @@ export function dotPreviewSvg(shape: DotShape, sidePx: number): string {
   for (let y = 0; y < DOT_PREVIEW_SIDE; y++) {
     for (let x = 0; x < DOT_PREVIEW_SIDE; x++) {
       if ((x + y) % 2 !== 0) continue;
-      dots.push(dotMark((x + 0.5) * px, (y + 0.5) * px, px * 0.8, shape));
+      dots.push(dotMark((x + 0.5) * px, (y + 0.5) * px, px * 0.82, shape));
     }
   }
   return [

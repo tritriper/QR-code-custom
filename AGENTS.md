@@ -259,9 +259,19 @@ support du raster, style par style.
   300 px) et passe à 32/32 dès 4,5–5.
 - **`dotPreviewSvg()` vit dans `render.ts`**, pour la même raison que
   `finderPreviewSvg()` : les vignettes de l'app web sont dessinées par
-  `dotMark()`, la fonction qui dessine réellement les points du QR. Elle affiche
-  un quinconce de 5 points sur 3 modules, à 0,8 module — plus gros que le défaut,
-  parce que c'est la forme qui se juge sur une vignette de 22 px, pas la taille.
+  `dotMark()`, la fonction qui dessine réellement les points du QR. Elle
+  affiche **deux points en diagonale sur 2 modules**, à 0,82 module — plus gros
+  que le défaut, parce que c'est la forme qui se juge sur une vignette, pas la
+  taille —, dans un carré de 30 px (`DOT_PREVIEW_PX` dans `web/main.ts`) et non
+  22 comme les coins (`SHAPE_PREVIEW_PX`) : un coin est un dessin unique qui
+  remplit sa vignette, un point n'en occupe qu'une fraction.
+  Ces valeurs viennent d'un essai à l'œil sur maquette, pas d'un choix
+  arbitraire : un quinconce de 5 points, à 22 px puis à 30 px, ne laissait pas
+  distinguer `rounded` de `extra-rounded`, dont les rayons ne diffèrent que
+  d'un quinzième de côté. Un point unique (essayé aussi) rend les formes encore
+  plus nettes mais fait ressembler la vignette à une pastille de couleur ; le
+  damier de deux points est le compromis retenu. Si une forme s'ajoute un jour,
+  revérifier qu'elle se distingue à cette taille avant de l'exposer.
 - **`finderPreviewSvg()` vit dans `render.ts`** alors qu'il ne sert qu'à
   l'app web : c'est ce qui garantit que les vignettes des boutons de forme
   sont dessinées par le même code que le QR (même géométrie sur 7 modules),
