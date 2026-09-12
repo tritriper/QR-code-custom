@@ -19,7 +19,17 @@ import {
   toUpperUrl,
   type SvgFile,
 } from "./qr.js";
-import { DEFAULT_RENDER_OPTS, FINDER_SHAPES, type FinderShape, type RenderOpts } from "./render.js";
+import {
+  DEFAULT_RENDER_OPTS,
+  DOT_SHAPES,
+  FINDER_SHAPES,
+  PRESETS,
+  PRESET_NAMES,
+  type DotShape,
+  type FinderShape,
+  type PresetName,
+  type RenderOpts,
+} from "./render.js";
 
 interface Options {
   url: string;
@@ -36,6 +46,10 @@ interface Options {
   color: string;
   /** Diamètre d'un point, en px, sur une grille au pas de 10. */
   dotSize: number;
+  /** Forme des points, motifs de détection exclus. */
+  dotShape: DotShape;
+  /** Préréglage d'apparence appliqué, ou undefined si aucun. */
+  preset: PresetName | undefined;
   /** Version minimale du symbole : plus elle est haute, plus la grille a de points. */
   density: number;
   /** Côté du SVG produit, en px. */
@@ -58,6 +72,19 @@ interface Options {
   centerLogoColor: string | undefined;
 }
 
+/**
+ * Sous cette taille de point, les losanges ne se décodent plus de façon fiable
+ * (voir AGENTS.md). Seuil dupliqué dans `warnings()` de `web/main.ts`.
+ */
+const DIAMOND_MIN_DOT_SIZE = 5;
+
+/**
+ * Sous cette taille de point, un contour de coin rond ne se détecte plus de
+ * façon fiable (voir AGENTS.md). Seuil dupliqué dans `warnings()` de
+ * `web/main.ts`.
+ */
+const CIRCLE_FINDER_MIN_DOT_SIZE = 5;
+
 /** SVG de l'association, à jour dans la charte : trait vert foncé. */
 const DEFAULT_ART = "art/CF-Logo-VertFonce-Trans.svg";
 /** Couleur de l'illustration par défaut : vert foncé de la charte Collecti'FROG. */
@@ -75,12 +102,19 @@ function main(): void {
     for (const warning of upper.warnings) console.warn(`Attention : ${warning}`);
   }
 
+  // Le préréglage se glisse entre les défauts et les options explicites : il
+  // ne touche qu'aux réglages laissés au défaut (voir `wasGiven`).
+  const preset: Partial<RenderOpts> = opts.preset === undefined ? {} : PRESETS[opts.preset];
   const renderOpts: RenderOpts = {
     ...DEFAULT_RENDER_OPTS,
+    ...preset,
     darkColor: opts.color,
-    dotPx: opts.dotSize,
+    dotPx: wasGiven("dot-size") ? opts.dotSize : (preset.dotPx ?? DEFAULT_RENDER_OPTS.dotPx),
+    dotShape: wasGiven("dot-shape") ? opts.dotShape : (preset.dotShape ?? DEFAULT_RENDER_OPTS.dotShape),
     outputPx: opts.size,
-    finderShape: opts.finderShape,
+    finderShape: wasGiven("finder-shape")
+      ? opts.finderShape
+      : (preset.finderShape ?? DEFAULT_RENDER_OPTS.finderShape),
     finderPupilShape: opts.finderPupilShape,
     finderColor: opts.finderColor,
     finderPupilColor: opts.finderPupilColor,
@@ -125,6 +159,8 @@ function parseOptions(): Options {
       "art-color": { type: "string", default: DEFAULT_ART_COLOR },
       color: { type: "string", default: DEFAULT_RENDER_OPTS.darkColor },
       "dot-size": { type: "string", default: String(DEFAULT_RENDER_OPTS.dotPx) },
+      "dot-shape": { type: "string", default: DEFAULT_RENDER_OPTS.dotShape },
+      preset: { type: "string" },
       density: { type: "string", default: String(MIN_DENSITY) },
       size: { type: "string", default: String(DEFAULT_RENDER_OPTS.outputPx) },
       "finder-shape": { type: "string", default: DEFAULT_RENDER_OPTS.finderShape },
@@ -144,6 +180,8 @@ function parseOptions(): Options {
         '        [--art-scale 140] [--mask 0] [--thicken 1] [--art-color "#12341f"]\n' +
         '        [--color "#000000"] [--dot-size 5] [--no-art]\n' +
         '        [--density 1] [--size 1024]\n' +
+        `        [--preset ${PRESET_NAMES.join("|")}]\n` +
+        `        [--dot-shape ${DOT_SHAPES.join("|")}]\n` +
         `        [--finder-shape ${FINDER_SHAPES.join("|")}]\n` +
         '        [--finder-pupil-shape <même liste>] [--finder-color "#000"]\n' +
         '        [--finder-pupil-color "#000"]\n' +
@@ -184,6 +222,26 @@ function parseOptions(): Options {
   const dotSize = number(values["dot-size"], "--dot-size");
   if (dotSize <= 0) {
     throw new Error(`--dot-size doit être strictement positif, reçu "${values["dot-size"]}"`);
+  }
+
+  const preset = values.preset;
+  if (preset !== undefined && !isPresetName(preset)) {
+    throw new Error(`--preset doit valoir ${PRESET_NAMES.join(", ")}, reçu "${preset}"`);
+  }
+
+  const dotShape = values["dot-shape"];
+  if (!isDotShape(dotShape)) {
+    throw new Error(`--dot-shape doit valoir ${DOT_SHAPES.join(", ")}, reçu "${dotShape}"`);
+  }
+  // Le losange est inscrit dans le carré de `--dot-size` : il n'en couvre que
+  // la moitié, donc il pose deux fois moins d'encre que les autres formes à
+  // taille égale. Mesuré (voir AGENTS.md) : sous 5, il décroche à basse
+  // résolution là où les autres passent encore.
+  if (dotShape === "diamond" && dotSize < DIAMOND_MIN_DOT_SIZE) {
+    console.warn(
+      `Attention : des losanges à --dot-size ${dotSize} posent peu d'encre et se décodent mal` +
+        ` une fois le QR imprimé petit. Reste au-dessus de ${DIAMOND_MIN_DOT_SIZE}, ou choisis une autre forme.`,
+    );
   }
 
   const density = number(values.density, "--density");
@@ -228,6 +286,17 @@ function parseOptions(): Options {
     );
   }
 
+  // Le contour rond est déjà fin sur ses diagonales ; des points fins autour
+  // lui retirent les repères dont le lecteur se sert. Mesuré (voir AGENTS.md) :
+  // 24/32 seulement à --dot-size 4, contre 32/32 à partir de 5.
+  if (finderShape === "circle" && dotSize < CIRCLE_FINDER_MIN_DOT_SIZE) {
+    console.warn(
+      `Attention : des coins ronds avec des points à --dot-size ${dotSize} se détectent mal` +
+        ` (24 décodages sur 32 dans nos essais). Reste au-dessus de ${CIRCLE_FINDER_MIN_DOT_SIZE},` +
+        " ou choisis un autre contour de coin.",
+    );
+  }
+
   const centerLogoScalePercent = number(values["center-logo-scale"], "--center-logo-scale");
   if (centerLogoScalePercent <= 0 || centerLogoScalePercent > 40) {
     throw new Error(
@@ -259,6 +328,8 @@ function parseOptions(): Options {
     artColor,
     color,
     dotSize,
+    dotShape,
+    preset,
     density,
     size,
     finderShape,
@@ -274,6 +345,24 @@ function parseOptions(): Options {
 
 function isFinderShape(value: string): value is FinderShape {
   return (FINDER_SHAPES as readonly string[]).includes(value);
+}
+
+function isDotShape(value: string): value is DotShape {
+  return (DOT_SHAPES as readonly string[]).includes(value);
+}
+
+function isPresetName(value: string): value is PresetName {
+  return (PRESET_NAMES as readonly string[]).includes(value);
+}
+
+/**
+ * Vrai si l'option a été tapée sur la ligne de commande. `parseArgs` ne le dit
+ * pas — une option absente y prend sa valeur par défaut, indiscernable d'une
+ * valeur choisie — et c'est nécessaire ici pour que `--preset` s'applique aux
+ * réglages laissés au défaut sans écraser ceux qu'on a explicitement demandés.
+ */
+function wasGiven(flag: string): boolean {
+  return process.argv.slice(2).some((arg) => arg === `--${flag}` || arg.startsWith(`--${flag}=`));
 }
 
 function isCssColor(value: string): boolean {

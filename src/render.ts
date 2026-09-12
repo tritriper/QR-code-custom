@@ -13,6 +13,70 @@ export const FINDER_SHAPES = ["square", "rounded", "extra-rounded", "circle", "l
 /** Forme d'un motif de détection : son contour et son centre en ont une chacun. */
 export type FinderShape = (typeof FINDER_SHAPES)[number];
 
+/**
+ * Formes dessinées module par module, chacune sans regarder ses voisines.
+ * Quatre d'entre elles sont celles des motifs de détection, au même nom et au
+ * même dessin (`baseRadii()`) : c'est ce qui permet d'assortir points et
+ * coins. `diamond` n'existe que pour les points — un motif de détection en
+ * losange ne respecterait plus le rapport 1:1:3:1:1 attendu par les lecteurs.
+ */
+const ISOLATED_DOT_SHAPES = ["circle", "rounded", "extra-rounded", "square", "leaf", "diamond"] as const;
+
+/**
+ * Formes qui soudent les modules contigus. Contrairement aux précédentes,
+ * elles ont besoin de connaître le voisinage de chaque module — d'où la grille
+ * `Drawn` passée à `dotMarks()`. Toutes deux gardent `dotPx` comme épaisseur :
+ * à 10 (le pas de la grille) elles sont pleines, en dessous elles donnent un
+ * chapelet de points reliés.
+ */
+const CONNECTED_DOT_SHAPES = ["bars", "connected"] as const;
+
+export const DOT_SHAPES = [...ISOLATED_DOT_SHAPES, ...CONNECTED_DOT_SHAPES] as const;
+
+/** Forme d'un point du QR, motifs de détection exclus. */
+export type DotShape = (typeof DOT_SHAPES)[number];
+
+/** Forme dessinée module par module, sans regarder les voisins. */
+type IsolatedDotShape = (typeof ISOLATED_DOT_SHAPES)[number];
+
+/**
+ * Quels modules sont réellement dessinés dans un groupe donné. Les formes
+ * connectées doivent souder d'après cette grille et non d'après la matrice
+ * brute : un module sombre sauté (motif de détection, réserve du logo central)
+ * ne doit pas servir de voisin, sans quoi un trait déborderait dans une zone
+ * censée rester vide.
+ */
+type Drawn = readonly (readonly boolean[])[];
+
+/**
+ * Forme de coin qui va avec chaque forme de point, pour la case « Coins
+ * assortis aux points » de l'app web.
+ *
+ * Vit ici et non dans `web/main.ts` parce que c'est une correspondance entre
+ * deux listes de `render.ts`, et parce que trois formes de points n'ont pas
+ * d'équivalent exact côté coins — un motif de détection doit garder le rapport
+ * 1:1:3:1:1 que les lecteurs y cherchent :
+ *
+ * - `diamond` → `square` : un losange est un carré tourné, c'est la forme
+ *   anguleuse la plus proche ;
+ * - `bars` → `rounded` : les capsules ont des bouts arrondis ;
+ * - `connected` → `extra-rounded`, l'arrondi le plus franc qui reste sûr.
+ */
+const MATCHING_FINDER: Record<DotShape, FinderShape> = {
+  circle: "circle",
+  rounded: "rounded",
+  "extra-rounded": "extra-rounded",
+  square: "square",
+  leaf: "leaf",
+  diamond: "square",
+  bars: "rounded",
+  connected: "extra-rounded",
+};
+
+export function matchingFinderShape(shape: DotShape): FinderShape {
+  return MATCHING_FINDER[shape];
+}
+
 export interface RenderOpts {
   darkColor: string;
   lightColor: string;
@@ -32,8 +96,10 @@ export interface RenderOpts {
   outputPx: number;
   /** Marge silencieuse, en modules. Le standard QR en exige 4 au minimum. */
   quietZone: number;
-  /** Diamètre d'un point, en px. */
+  /** Diamètre d'un point, en px. Pour les formes anguleuses, le côté de son carré englobant. */
   dotPx: number;
+  /** Forme des points, motifs de détection exclus (ils ont la leur). */
+  dotShape: DotShape;
   /** Forme du contour des 3 motifs de détection. */
   finderShape: FinderShape;
   /** Forme du centre des 3 motifs de détection. Par défaut, celle du contour. */
@@ -76,12 +142,47 @@ export const DEFAULT_RENDER_OPTS: RenderOpts = {
   outputPx: 1024,
   quietZone: 1,
   dotPx: 5,
+  dotShape: "circle",
   finderShape: "rounded",
   artworkScale: 1.4,
   artworkThickenPx: 1,
   centerLogoScale: 0.40,
   centerLogoMarginPx: 0,
 };
+
+/**
+ * Préréglages d'apparence : le point d'entrée principal des deux interfaces.
+ * Chacun n'est qu'un paquet de valeurs de `RenderOpts`, appliqué par-dessus
+ * `DEFAULT_RENDER_OPTS` et sous les réglages explicites de l'utilisateur.
+ *
+ * **Volontairement géométriques.** Aucun ne fixe de couleur, alors que
+ * certains y inviteraient (« Feuille » et le vert de la charte). La raison est
+ * une règle d'interface : changer de style ne doit jamais écraser une couleur
+ * qu'on vient de choisir. Les couleurs restent donc réglées à part, des deux
+ * côtés.
+ *
+ * Ils ne couvrent pas non plus le logo (`artwork*`, `centerLogo*`) : le style
+ * du logo est un choix à trois positions dans l'app web, indépendant de
+ * l'apparence des points, et le mélanger ici ferait qu'un clic sur un
+ * préréglage changerait le logo affiché.
+ */
+export const PRESETS = {
+  classique: { dotShape: "square", finderShape: "square", dotPx: 10 },
+  rond: { dotShape: "circle", finderShape: "rounded", dotPx: 5 },
+  feuille: { dotShape: "leaf", finderShape: "leaf", dotPx: 8 },
+  fluide: { dotShape: "connected", finderShape: "extra-rounded", dotPx: 9 },
+  stries: { dotShape: "bars", finderShape: "rounded", dotPx: 6 },
+  // Points fins, mais pas autant que le nom y inviterait : mesuré, des points
+  // à 3,5 ne décodent plus que 20 fois sur 32, et un contour de coin rond
+  // aggrave encore (24/32 même à 4). D'où des coins arrondis et des points à
+  // 4, la combinaison la plus aérée qui passe partout.
+  minimal: { dotShape: "circle", finderShape: "rounded", dotPx: 4 },
+} as const satisfies Record<string, Partial<RenderOpts>>;
+
+/** Nom d'un préréglage d'apparence. */
+export type PresetName = keyof typeof PRESETS;
+
+export const PRESET_NAMES = Object.keys(PRESETS) as readonly PresetName[];
 
 /** Géométrie dérivée, en pixels utilisateur SVG. */
 interface Layout {
@@ -239,34 +340,135 @@ function background(layout: Layout, opts: RenderOpts): string[] {
 }
 
 function darkModules(modules: boolean[][], layout: Layout, opts: RenderOpts, reserve: Reserve | null): string[] {
-  const dots: string[] = [];
-  for (let y = 0; y < layout.size; y++) {
-    for (let x = 0; x < layout.size; x++) {
-      if (!modules[y][x] || isFinderModule(x, y, layout.size)) continue;
-      // Le logo central efface réellement les modules dessous, pas seulement
-      // à l'écran : inutile de les dessiner.
-      if (reserve !== null && insideReserve(centerPx(x, layout, opts), centerPx(y, layout, opts), reserve)) continue;
-      dots.push(dot(x, y, layout, opts));
-    }
-  }
-  return group(`<g fill="${opts.darkColor}">`, dots);
+  const drawn = drawnGrid(layout.size, (x, y) => {
+    if (!modules[y][x] || isFinderModule(x, y, layout.size)) return false;
+    // Le logo central efface réellement les modules dessous, pas seulement
+    // à l'écran : inutile de les dessiner.
+    return reserve === null || !insideReserve(centerPx(x, layout, opts), centerPx(y, layout, opts), reserve);
+  });
+  return group(`<g fill="${opts.darkColor}">`, dotMarks(drawn, layout, opts));
 }
 
 function lightModules(modules: boolean[][], layout: Layout, opts: RenderOpts): string[] {
-  const dots: string[] = [];
-  for (let y = 0; y < layout.size; y++) {
-    for (let x = 0; x < layout.size; x++) {
-      if (modules[y][x]) continue;
-      dots.push(dot(x, y, layout, opts));
-    }
-  }
+  const drawn = drawnGrid(layout.size, (x, y) => !modules[y][x]);
   // Le masque ne laisse passer ces points qu'à l'intérieur des traits de
   // l'illustration : ailleurs ils seraient clairs sur clair, donc inutiles.
-  return group(`<g fill="${opts.lightColor}" mask="url(#art)">`, dots);
+  return group(`<g fill="${opts.lightColor}" mask="url(#art)">`, dotMarks(drawn, layout, opts));
 }
 
-function dot(x: number, y: number, layout: Layout, opts: RenderOpts): string {
-  return `<circle cx="${num(centerPx(x, layout, opts))}" cy="${num(centerPx(y, layout, opts))}" r="${num(opts.dotPx / 2)}"/>`;
+function drawnGrid(size: number, keep: (x: number, y: number) => boolean): Drawn {
+  return Array.from({ length: size }, (_row, y) => Array.from({ length: size }, (_cell, x) => keep(x, y)));
+}
+
+/** Vrai si le module existe et fait partie du groupe dessiné. */
+function at(drawn: Drawn, x: number, y: number): boolean {
+  return drawn[y]?.[x] === true;
+}
+
+/** Tous les tracés d'un groupe de modules, dans la forme demandée. */
+function dotMarks(drawn: Drawn, layout: Layout, opts: RenderOpts): string[] {
+  switch (opts.dotShape) {
+    case "bars":
+      return barMarks(drawn, layout, opts);
+    case "connected":
+      return connectedMarks(drawn, layout, opts);
+    default:
+      return isolatedMarks(drawn, layout, opts, opts.dotShape);
+  }
+}
+
+function isolatedMarks(drawn: Drawn, layout: Layout, opts: RenderOpts, shape: IsolatedDotShape): string[] {
+  const marks: string[] = [];
+  for (let y = 0; y < layout.size; y++) {
+    for (let x = 0; x < layout.size; x++) {
+      if (!at(drawn, x, y)) continue;
+      marks.push(dotMark(centerPx(x, layout, opts), centerPx(y, layout, opts), opts.dotPx, shape));
+    }
+  }
+  return marks;
+}
+
+/**
+ * Chaque suite horizontale de modules devient une capsule unique. Émettre la
+ * suite d'un coup plutôt qu'un tracé par module garde le SVG court et lisible
+ * à la main, ce que le projet exige — et c'est aussi ce qui donne des bouts
+ * franchement arrondis plutôt qu'une succession de bosses.
+ */
+function barMarks(drawn: Drawn, layout: Layout, opts: RenderOpts): string[] {
+  const marks: string[] = [];
+  for (let y = 0; y < layout.size; y++) {
+    let start = -1;
+    for (let x = 0; x <= layout.size; x++) {
+      if (at(drawn, x, y)) {
+        if (start === -1) start = x;
+        continue;
+      }
+      if (start === -1) continue;
+      marks.push(capsule(start, x - 1, y, layout, opts));
+      start = -1;
+    }
+  }
+  return marks;
+}
+
+/** Capsule couvrant les modules `from` à `to` de la ligne `y`, épaisse de `dotPx`. */
+function capsule(from: number, to: number, y: number, layout: Layout, opts: RenderOpts): string {
+  const half = opts.dotPx / 2;
+  const left = centerPx(from, layout, opts) - half;
+  const width = centerPx(to, layout, opts) + half - left;
+  return `<rect x="${num(left)}" y="${num(centerPx(y, layout, opts) - half)}" width="${num(width)}" height="${num(opts.dotPx)}" rx="${num(half)}"/>`;
+}
+
+/**
+ * Un point rond par module, plus un trait vers son voisin de droite et vers
+ * celui du dessous. Les traits ne sont émis qu'une fois par paire (jamais vers
+ * la gauche ni vers le haut), et se chevauchent volontairement avec les points
+ * qu'ils relient : c'est ce recouvrement qui soude le tout sans jointure
+ * visible, là où des segments bout à bout laisseraient une arête.
+ */
+function connectedMarks(drawn: Drawn, layout: Layout, opts: RenderOpts): string[] {
+  const marks: string[] = [];
+  const half = opts.dotPx / 2;
+  for (let y = 0; y < layout.size; y++) {
+    for (let x = 0; x < layout.size; x++) {
+      if (!at(drawn, x, y)) continue;
+      const cx = centerPx(x, layout, opts);
+      const cy = centerPx(y, layout, opts);
+      marks.push(dotMark(cx, cy, opts.dotPx, "circle"));
+      if (at(drawn, x + 1, y)) {
+        marks.push(
+          `<rect x="${num(cx)}" y="${num(cy - half)}" width="${num(opts.modulePx)}" height="${num(opts.dotPx)}"/>`,
+        );
+      }
+      if (at(drawn, x, y + 1)) {
+        marks.push(
+          `<rect x="${num(cx - half)}" y="${num(cy)}" width="${num(opts.dotPx)}" height="${num(opts.modulePx)}"/>`,
+        );
+      }
+    }
+  }
+  return marks;
+}
+
+/** Un point de la forme demandée, centré sur (cx, cy) et inscrit dans un carré de `side`. */
+function dotMark(cx: number, cy: number, side: number, shape: IsolatedDotShape): string {
+  const half = side / 2;
+  switch (shape) {
+    case "circle":
+      // Gardé comme `<circle>` plutôt que comme un `<rect rx>` de rayon
+      // maximal, pourtant équivalent : c'est la balise la plus courte, et il y
+      // en a une par module sombre (plus de 2000 sur une grille dense).
+      return `<circle cx="${num(cx)}" cy="${num(cy)}" r="${num(half)}"/>`;
+    case "diamond":
+      // Carré tourné d'un quart de tour, inscrit dans le même carré englobant :
+      // ses sommets touchent le milieu des côtés. Il paraît donc plus léger que
+      // les autres formes à `dotPx` égal, ce que le README signale.
+      return `<path d="M${num(cx)} ${num(cy - half)} L${num(cx + half)} ${num(cy)} L${num(cx)} ${num(cy + half)} L${num(cx - half)} ${num(cy)} Z"/>`;
+    default:
+      // Les formes restantes sont celles des motifs de détection, au même
+      // dessin : `finderMark()` choisit seul entre `<rect rx>` et `<path>`.
+      return finderMark(cx - half, cy - half, side, radiiOf(shape, 0));
+  }
 }
 
 function finders(layout: Layout, opts: RenderOpts): string[] {
@@ -393,6 +595,82 @@ export function finderPreviewSvg(ring: FinderShape, pupil: FinderShape, sidePx: 
     `${INDENT}</g>`,
     `</svg>`,
   ].join("\n");
+}
+
+/**
+ * Trames servant d'aperçu aux formes de points. Deux motifs, parce que les
+ * deux familles de formes ne se jugent pas sur la même chose :
+ *
+ * - les formes isolées se lisent sur deux points en diagonale, qui ne se
+ *   touchent pas — c'est exactement leur situation dans le QR ;
+ * - les formes connectées ne montrent rien sans voisinage (sans adjacence,
+ *   elles retombent sur des ronds). Leur motif est donc un escalier de deux
+ *   suites de deux, qui fait apparaître à la fois une soudure horizontale et,
+ *   pour `connected`, la verticale.
+ *
+ * Les deux tiennent dans la même vignette de 30 px. Descendre en dessous de
+ * deux points sur la diagonale ne laissait plus distinguer `rounded` de
+ * `extra-rounded`, dont les rayons ne diffèrent que d'un quinzième de côté ;
+ * un point unique ressemblerait à une pastille de couleur plutôt qu'à des
+ * points.
+ */
+const DOT_PREVIEW_ISOLATED = ["#.", ".#"] as const;
+const DOT_PREVIEW_CONNECTED = ["##.", ".##"] as const;
+
+/**
+ * Un échantillon de points, à l'usage des aperçus de l'app web : mêmes
+ * fonctions de dessin que dans le QR, sur une trame ramenée à un carré de
+ * `sidePx` de côté et peinte dans la couleur courante du texte.
+ *
+ * Les points y sont volontairement plus gros que le défaut (0,82 module contre
+ * 0,5) : c'est la forme qui se juge sur une vignette, pas la taille, réglée à
+ * part par `dotPx`.
+ */
+export function dotPreviewSvg(shape: DotShape, sidePx: number): string {
+  const rows: readonly string[] =
+    shape === "bars" || shape === "connected" ? DOT_PREVIEW_CONNECTED : DOT_PREVIEW_ISOLATED;
+  const cols = rows[0].length;
+  const px = sidePx / cols;
+  const drawn: boolean[][] = rows.map((row) => [...row].map((cell) => cell === "#"));
+
+  // Une mise en page réduite au motif : même géométrie que le QR (pas de
+  // grille `px`, points à `dotPx`), sans marge silencieuse, et centrée
+  // verticalement puisque le motif connecté est plus large que haut.
+  const layout: Layout = { size: cols, sidePx, dataOriginPx: 0, dataSidePx: sidePx };
+  const previewOpts: RenderOpts = { ...DEFAULT_RENDER_OPTS, dotShape: shape, modulePx: px, dotPx: px * 0.82, quietZone: 0 };
+  const offsetY = (sidePx - rows.length * px) / 2;
+  const side = num(sidePx);
+
+  return [
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${side}" height="${side}" viewBox="0 0 ${side} ${side}" aria-hidden="true">`,
+    ...indent(group(`<g fill="currentColor" transform="translate(0 ${num(offsetY)})">`, dotMarks(drawn, layout, previewOpts)), 1),
+    `</svg>`,
+  ].join("\n");
+}
+
+/**
+ * Vignette d'un préréglage, à l'usage de la galerie de l'app web : un vrai QR
+ * miniature, produit par `renderQrSvg()` lui-même, sur une matrice fournie par
+ * l'appelant.
+ *
+ * La matrice vient de l'extérieur parce que `render.ts` ne sait pas encoder —
+ * c'est le rôle de `qr.ts`. En échange, la vignette est un rendu authentique
+ * du préréglage et non un dessin à part qui dériverait au premier changement,
+ * exactement comme `finderPreviewSvg()` et `dotPreviewSvg()`.
+ *
+ * Le fond est `none` et les modules sont peints en `currentColor` : la
+ * vignette suit la couleur du libellé du bouton, muette au repos et accentuée
+ * une fois sélectionnée.
+ */
+export function presetPreviewSvg(modules: boolean[][], preset: PresetName, sidePx: number): string {
+  return renderQrSvg(modules, {
+    ...DEFAULT_RENDER_OPTS,
+    ...PRESETS[preset],
+    outputPx: sidePx,
+    quietZone: 0,
+    darkColor: "currentColor",
+    lightColor: "none",
+  });
 }
 
 function maskDefs(layout: Layout, artwork: Overlay, opts: RenderOpts): string[] {

@@ -227,6 +227,68 @@ support du raster, style par style.
   n'est pas interdite (le CLI et l'app laissent faire, comme pour
   `--center-logo-scale`), elle déclenche un avertissement dupliqué dans
   `parseOptions()` et `warnings()`. Si la condition bouge, bouger les deux.
+- **Formes des points (`--dot-shape`) : chaque point est dessiné seul.**
+  `dot()` ne reçoit que ses coordonnées, jamais la matrice : les six formes
+  exposées sont donc toutes des formes isolées. Les styles qui fusionnent les
+  modules contigus (rubans « fluides », stries horizontales) demanderaient de
+  passer `modules` à `dot()` — c'est le vrai coût, pas le dessin lui-même.
+  Quatre des six formes (`rounded`, `extra-rounded`, `square`, `leaf`) sont
+  celles des motifs de détection et réutilisent `baseRadii()` via
+  `finderMark()` : c'est ce qui permet d'assortir points et coins, et ça évite
+  deux tables de dessins qui dériveraient. `circle` garde volontairement sa
+  balise `<circle>` plutôt qu'un `<rect rx>` équivalent — c'est la plus courte,
+  et il y en a une par module sombre (plus de 2000 sur une grille dense). La
+  sortie du rendu par défaut est restée **strictement identique** à celle
+  d'avant l'option, vérifié par diff.
+- **Formes connectées (`bars`, `connected`) : souder d'après ce qui est
+  dessiné, pas d'après la matrice.** `darkModules()` saute les modules des
+  motifs de détection et ceux de la réserve du logo central ; un trait qui les
+  prendrait pour voisins déborderait dans une zone censée rester vide. D'où la
+  grille `Drawn`, construite par `drawnGrid()` dans chaque groupe et passée à
+  `dotMarks()` — `lightModules()` a la sienne, différente. Ne pas revenir à la
+  matrice brute.
+  Les deux gardent `dotPx` comme **épaisseur** du tracé, ce qui laisse
+  `--dot-size` utile (à 10 le trait est plein, en dessous c'est un chapelet de
+  points reliés) et évite d'avoir à masquer le réglage dans l'app. `bars` émet
+  une capsule par suite horizontale — plus court que un tracé par module, et
+  c'est aussi ce qui donne des bouts franchement arrondis plutôt qu'une
+  succession de bosses ; `connected` émet un rond par module plus une liaison
+  vers la droite et vers le bas, volontairement en recouvrement avec les ronds
+  qu'elles relient (des segments bout à bout laisseraient une arête visible).
+  Conséquence assumée : `connected` produit le fichier le plus lourd des huit
+  formes, environ 1,7 fois un QR à points ronds.
+- **`diamond` n'existe que pour les points**, pas pour les coins : un motif de
+  détection en losange ne présenterait plus le rapport 1:1:3:1:1 attendu par
+  les lecteurs. Il est inscrit dans le carré de `dotPx`, donc il ne couvre que
+  la moitié de sa surface — et non mis à l'échelle par √2 pour compenser, ce
+  qui le ferait déborder sur les modules voisins dès `--dot-size` élevé. D'où
+  un avertissement sous `--dot-size 5`, dupliqué dans `parseOptions()` et
+  `warnings()` comme les autres.
+- **Calibration des formes de points** : 6 formes × 8 masques × 4
+  rastérisations (300/400/500/800 px), `rsvg-convert` + `zbarimg`. Tout décode
+  (32/32 par forme) sur : le défaut avec logo intégré, `--dot-size 9`,
+  `--dot-size 4`, une URL longue (version 8) et le logo central à 40 %. Le seul
+  décrochage est à **points fins** : à `--dot-size 3`, `circle` tombe à 23/32,
+  `diamond` à 21/32, `leaf` à 27/32 — mais `circle` est la forme historique et
+  se comportait déjà ainsi, ce n'est donc pas propre aux nouvelles formes ;
+  c'est `--dot-size 3` qui est fragile en soi, toutes formes confondues.
+  `diamond` seul décroche encore à `--dot-size 4` (24/32, tous les échecs à
+  300 px) et passe à 32/32 dès 4,5–5.
+- **`dotPreviewSvg()` vit dans `render.ts`**, pour la même raison que
+  `finderPreviewSvg()` : les vignettes de l'app web sont dessinées par
+  `dotMark()`, la fonction qui dessine réellement les points du QR. Elle
+  affiche **deux points en diagonale sur 2 modules**, à 0,82 module — plus gros
+  que le défaut, parce que c'est la forme qui se juge sur une vignette, pas la
+  taille —, dans un carré de 30 px (`DOT_PREVIEW_PX` dans `web/main.ts`) et non
+  22 comme les coins (`SHAPE_PREVIEW_PX`) : un coin est un dessin unique qui
+  remplit sa vignette, un point n'en occupe qu'une fraction.
+  Ces valeurs viennent d'un essai à l'œil sur maquette, pas d'un choix
+  arbitraire : un quinconce de 5 points, à 22 px puis à 30 px, ne laissait pas
+  distinguer `rounded` de `extra-rounded`, dont les rayons ne diffèrent que
+  d'un quinzième de côté. Un point unique (essayé aussi) rend les formes encore
+  plus nettes mais fait ressembler la vignette à une pastille de couleur ; le
+  damier de deux points est le compromis retenu. Si une forme s'ajoute un jour,
+  revérifier qu'elle se distingue à cette taille avant de l'exposer.
 - **`finderPreviewSvg()` vit dans `render.ts`** alors qu'il ne sert qu'à
   l'app web : c'est ce qui garantit que les vignettes des boutons de forme
   sont dessinées par le même code que le QR (même géométrie sur 7 modules),
@@ -260,6 +322,76 @@ support du raster, style par style.
   les deux ont été découplés intentionnellement. Si `--art-color` dérivait
   de `--color` (comme c'était le cas dans une version antérieure), changer la
   couleur des modules changerait aussi celle du logo sans le vouloir.
+
+### Le tiroir des formes et la case « Coins assortis aux points »
+
+Deux commodités d'interface qui ne changent rien au rendu, mais qui décident
+de ce que l'app montre.
+
+- **Le tiroir** (`<details class="tweaks">` dans la section *Forme*) contient
+  taille et densité des points, les deux rangées de formes et leurs cases. Les
+  réglages du **logo** restent dehors : ils ne dépendent pas du préréglage
+  choisi, et les enfermer avec le reste les rendrait introuvables au moment où
+  on vient justement de déposer un logo. Fermé par défaut — un préréglage suffit
+  à la plupart des usages.
+- **La case « Coins assortis »** n'a pas d'équivalent CLI, comme
+  « Centre des coins de la même forme » avant elle : son pendant en ligne de
+  commande, c'est d'écrire `--finder-shape` soi-même. Ce n'est pas une
+  fonctionnalité de rendu, donc pas une entorse à la règle des deux entrées.
+- **La correspondance vit dans `render.ts`** (`MATCHING_FINDER` /
+  `matchingFinderShape()`) et non dans `web/main.ts` : c'est une table entre
+  deux listes de `render.ts`. Trois formes de points n'ont pas d'équivalent
+  côté coins, un motif de détection devant garder le rapport 1:1:3:1:1 —
+  `diamond` → `square` (un losange est un carré tourné), `bars` → `rounded`
+  (bouts de capsule arrondis), `connected` → `extra-rounded`.
+- **`finderShape()` déduit, ne recopie pas.** Case cochée, la forme est
+  calculée à chaque lecture depuis celle des points, et les boutons de coin
+  sont masqués sans être touchés : décocher rend le choix d'avant, pas celui
+  que la case aurait imposé entre-temps. `applyPreset()` décoche la case, un
+  préréglage choisissant lui-même ses coins (« Fluide » : points soudés, coins
+  très arrondis — la case donnerait la même chose ici, mais pas pour tous).
+- **Avertissement contour rond + points fins**, dupliqué `parseOptions()` /
+  `warnings()` comme les autres. Mesuré : coins ronds et points ronds donnent
+  20/32 à `--dot-size 3,5`, 24/32 à 4, 31/32 à 4,5 et 32/32 à partir de 5. La
+  case « Coins assortis » rend cette combinaison atteignable en deux clics
+  depuis « Minimal », d'où l'avertissement plutôt qu'une simple note.
+
+### Préréglages (`PRESETS`, `--preset`, galerie web)
+
+`PRESETS` vit dans `render.ts` et est la **seule** définition des six
+apparences : le CLI l'applique dans `main()`, l'app web y construit sa galerie
+et s'en sert pour reconnaître le préréglage courant. Ajouter une apparence =
+une entrée dans `PRESETS` + son libellé dans `PRESET_LABELS` (`web/main.ts`) ;
+tout le reste en découle, y compris les messages d'erreur du CLI.
+
+- **Aucun préréglage ne fixe de couleur**, alors que « Feuille » y inviterait
+  (le vert de la charte). C'est une règle d'interface : changer de style ne
+  doit jamais écraser une couleur qu'on vient de choisir. Même raison pour le
+  logo, absent des préréglages — il est réglé par le choix à trois positions.
+- **Un préréglage n'est pas un état.** `applyPreset()` écrit dans les contrôles
+  du formulaire, qui restent l'unique source de vérité lue par `renderOpts()` ;
+  `syncPresetSelection()` relit ces mêmes contrôles pour recocher la bonne
+  vignette, ou aucune (« Perso »). Rien à synchroniser, conformément à la règle
+  générale de l'app. Ne pas introduire de variable de module pour ça.
+- **L'écouteur de la galerie est sur `input`, pas `change`.** Celui du
+  formulaire, un cran au-dessus dans la remontée de l'événement, resynchronise
+  la galerie d'après les champs : il doit les trouver déjà remplis. Avec
+  `change`, il s'exécutait le premier, reconnaissait l'ancien préréglage et
+  décochait celui qu'on venait de choisir — vu à l'écran avant correction.
+- **Côté CLI, `wasGiven()` lit `process.argv`** parce que `parseArgs` ne
+  distingue pas une option absente d'une option écrite à sa valeur par défaut.
+  C'est ce qui permet à `--preset` de ne toucher qu'aux réglages laissés au
+  défaut. Si un réglage entre un jour dans `PRESETS`, l'ajouter aussi à la
+  liste des `wasGiven()` de `main()`, sinon le préréglage l'écrasera toujours.
+- **`minimal` n'est pas aussi fin que son nom l'indique**, et c'est mesuré :
+  des points ronds à 3,5 ne décodent que 20/32, et un contour de coin rond
+  aggrave (24/32 même à 4). Le préréglage est donc à points 4 + coins arrondis,
+  la combinaison la plus aérée qui passe partout. Ne pas l'affiner sans
+  refaire le protocole.
+- **Les six préréglages sont validés 32/32** (8 masques × 300/400/500/800 px).
+  Tout changement d'une de leurs valeurs demande de refaire ce test : ce sont
+  les apparences que les utilisateurs choisiront le plus, elles ne peuvent pas
+  être les moins fiables.
 
 ## Vérifier qu'un changement de rendu ne casse rien
 

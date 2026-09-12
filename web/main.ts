@@ -12,9 +12,17 @@
 import { MASK_COUNT, buildVariant, parseSvg, renderVariant, toUpperUrl, type SvgFile, type Variant } from "../src/qr.js";
 import {
   DEFAULT_RENDER_OPTS,
+  DOT_SHAPES,
   FINDER_SHAPES,
+  PRESETS,
+  PRESET_NAMES,
+  dotPreviewSvg,
   finderPreviewSvg,
+  matchingFinderShape,
+  presetPreviewSvg,
+  type DotShape,
   type FinderShape,
+  type PresetName,
   type RenderOpts,
 } from "../src/render.js";
 
@@ -35,8 +43,46 @@ const SHAPE_LABELS: Record<FinderShape, string> = {
   leaf: "Feuille",
 };
 
-/** Côté d'un aperçu de forme, en px. */
+/** Libellés des formes de points, pour l'infobulle et les lecteurs d'écran. */
+const DOT_SHAPE_LABELS: Record<DotShape, string> = {
+  circle: "Ronds",
+  rounded: "Arrondis",
+  "extra-rounded": "Très arrondis",
+  square: "Carrés",
+  leaf: "Feuille",
+  diamond: "Losanges",
+  bars: "Stries",
+  connected: "Fluide",
+};
+
+/** Libellés des préréglages, tels qu'ils s'affichent sous chaque vignette. */
+const PRESET_LABELS: Record<PresetName, string> = {
+  classique: "Classique",
+  rond: "Rond",
+  feuille: "Feuille",
+  fluide: "Fluide",
+  stries: "Stries",
+  minimal: "Minimal",
+};
+
+/** Côté d'une vignette de préréglage, en px. */
+const PRESET_PREVIEW_PX = 76;
+
+/** Côté d'un aperçu de forme de coin, en px. */
 const SHAPE_PREVIEW_PX = 22;
+
+/**
+ * Côté d'un aperçu de forme de point, en px. Plus grand que celui des coins :
+ * un coin est un dessin unique qui remplit sa vignette, un point n'en occupe
+ * qu'une fraction, et à 22 px `rounded` et `extra-rounded` s'y confondaient.
+ */
+const DOT_PREVIEW_PX = 30;
+
+/** Sous cette taille de point, les losanges se décodent mal (même seuil que le CLI). */
+const DIAMOND_MIN_DOT_SIZE = 5;
+
+/** Sous cette taille de point, un contour de coin rond se détecte mal (même seuil que le CLI). */
+const CIRCLE_FINDER_MIN_DOT_SIZE = 5;
 
 /** Au-delà, le SVG produit devient lourd : le logo y est recopié jusqu'à 3 fois. */
 const HEAVY_LOGO_BYTES = 200_000;
@@ -68,8 +114,12 @@ const ui = {
   form: el<HTMLFormElement>("#controls"),
   url: el<HTMLInputElement>("#url"),
   color: el<HTMLInputElement>("#color"),
+  presets: el<HTMLDivElement>("#preset"),
+  dotShapes: el<HTMLDivElement>("#dot-shape"),
   shapes: el<HTMLDivElement>("#finder-shape"),
   pupilShapes: el<HTMLDivElement>("#finder-pupil-shape"),
+  finderMatch: el<HTMLInputElement>("#finder-match"),
+  finderShapeRow: el<HTMLDivElement>("#finder-shape-row"),
   pupilSame: el<HTMLInputElement>("#pupil-same"),
   pupilRow: el<HTMLDivElement>("#pupil-shape-row"),
   finderColor: el<HTMLInputElement>("#finder-color"),
@@ -102,7 +152,16 @@ function mode(): Mode {
   return (new FormData(ui.form).get("mode") as Mode | null) ?? "art";
 }
 
+function dotShape(): DotShape {
+  return (new FormData(ui.form).get("dot-shape") as DotShape | null) ?? DEFAULT_RENDER_OPTS.dotShape;
+}
+
 function finderShape(): FinderShape {
+  // Case cochée : la forme des coins est déduite de celle des points et les
+  // boutons de coin sont masqués. Déduite à chaque lecture plutôt que recopiée
+  // dans les boutons : décocher la case doit rendre le choix précédent, pas
+  // celui que la case aurait imposé entre-temps.
+  if (ui.finderMatch.checked) return matchingFinderShape(dotShape());
   return (new FormData(ui.form).get("finder-shape") as FinderShape | null) ?? DEFAULT_RENDER_OPTS.finderShape;
 }
 
@@ -121,6 +180,7 @@ function renderOpts(logo: SvgFile | null): RenderOpts {
     ...DEFAULT_RENDER_OPTS,
     darkColor: ui.color.value,
     dotPx: Number(ui.dotSize.value),
+    dotShape: dotShape(),
     outputPx: outputPx(),
     finderShape: finderShape(),
     // Case cochée : sans forme propre, le centre des coins suit leur contour.
@@ -154,6 +214,20 @@ function warnings(current: Mode): string[] {
   if (finderShape() === "circle" && !ui.pupilSame.checked && finderPupilShape() !== "circle") {
     list.push(
       "Un contour de coin rond avec un centre d'une autre forme se lit mal : les scanners ratent souvent le QR code. Garde un centre rond, ou choisis un autre contour.",
+    );
+  }
+  // Même seuil que le CLI : le losange est inscrit dans le carré de la taille
+  // demandée, il n'en couvre que la moitié.
+  if (dotShape() === "diamond" && Number(ui.dotSize.value) < DIAMOND_MIN_DOT_SIZE) {
+    list.push(
+      `Des losanges aussi petits posent peu d'encre : le QR code se lira mal une fois imprimé en petit. Monte la taille des points au-dessus de ${DIAMOND_MIN_DOT_SIZE}, ou choisis une autre forme.`,
+    );
+  }
+  // Même seuil que le CLI : le contour rond est fin sur ses diagonales, et des
+  // points fins autour lui retirent ses repères.
+  if (finderShape() === "circle" && Number(ui.dotSize.value) < CIRCLE_FINDER_MIN_DOT_SIZE) {
+    list.push(
+      `Des coins ronds avec des points aussi fins se détectent mal : beaucoup de scanners ratent le QR code. Monte la taille des points au-dessus de ${CIRCLE_FINDER_MIN_DOT_SIZE}, ou choisis une autre forme de coins.`,
     );
   }
   if (current !== "none" && upload !== null && upload.bytes > HEAVY_LOGO_BYTES) {
@@ -214,6 +288,96 @@ async function render(): Promise<void> {
   } catch (error) {
     if (token !== renderToken) return;
     show(notes, error instanceof Error ? error.message : String(error));
+  }
+}
+
+/**
+ * Remplit la galerie de préréglages. Chaque vignette est un vrai QR miniature
+ * rendu par `render.ts` : elle ne peut pas diverger de ce que le préréglage
+ * produit réellement.
+ *
+ * La matrice est encodée une seule fois et partagée par les six vignettes —
+ * c'est le même contenu, seule l'apparence change.
+ */
+function buildPresetGallery(container: HTMLElement, modules: boolean[][]): void {
+  for (const name of PRESET_NAMES) {
+    const label = document.createElement("label");
+
+    const input = document.createElement("input");
+    input.type = "radio";
+    input.name = "preset";
+    input.value = name;
+    input.setAttribute("aria-label", PRESET_LABELS[name]);
+
+    const preview = document.createElement("span");
+    preview.innerHTML = `${presetPreviewSvg(modules, name, PRESET_PREVIEW_PX)}<em>${PRESET_LABELS[name]}</em>`;
+
+    label.append(input, preview);
+    container.append(label);
+  }
+}
+
+/**
+ * Recopie un préréglage dans les contrôles du formulaire. Les préréglages ne
+ * sont volontairement pas un état à part : ils écrivent dans les champs, qui
+ * restent l'unique source de vérité lue par `renderOpts()`.
+ */
+function applyPreset(name: PresetName): void {
+  const preset = PRESETS[name];
+  ui.dotSize.value = String(preset.dotPx);
+  check(ui.dotShapes, preset.dotShape);
+  check(ui.shapes, preset.finderShape);
+  // Un préréglage choisit lui-même la forme des coins — « Fluide » a des
+  // points soudés et des coins très arrondis, que la case ne donnerait pas.
+  ui.finderMatch.checked = false;
+}
+
+function check(container: HTMLElement, value: string): void {
+  for (const input of container.querySelectorAll<HTMLInputElement>("input")) {
+    input.checked = input.value === value;
+  }
+}
+
+/**
+ * Sélectionne le préréglage qui correspond aux réglages courants, ou aucun
+ * (« Perso ») s'ils n'en décrivent plus un. Déduit du formulaire à chaque
+ * changement plutôt que mémorisé : toucher un curseur suffit alors à sortir du
+ * préréglage, sans que rien n'ait à le signaler.
+ */
+function syncPresetSelection(): void {
+  const current = PRESET_NAMES.find(
+    (name) =>
+      PRESETS[name].dotShape === dotShape() &&
+      PRESETS[name].finderShape === finderShape() &&
+      PRESETS[name].dotPx === Number(ui.dotSize.value),
+  );
+  for (const input of ui.presets.querySelectorAll<HTMLInputElement>("input")) {
+    input.checked = input.value === current;
+  }
+}
+
+/**
+ * Remplit un groupe de boutons radio avec une forme de point par bouton, sur
+ * le même principe que `buildShapeGroup()` : l'aperçu est dessiné par la
+ * fonction de rendu des points elle-même.
+ */
+function buildDotShapeGroup(container: HTMLElement, checked: DotShape): void {
+  for (const shape of DOT_SHAPES) {
+    const label = document.createElement("label");
+    label.title = DOT_SHAPE_LABELS[shape];
+
+    const input = document.createElement("input");
+    input.type = "radio";
+    input.name = "dot-shape";
+    input.value = shape;
+    input.checked = shape === checked;
+    input.setAttribute("aria-label", DOT_SHAPE_LABELS[shape]);
+
+    const preview = document.createElement("span");
+    preview.innerHTML = dotPreviewSvg(shape, DOT_PREVIEW_PX);
+
+    label.append(input, preview);
+    container.append(label);
   }
 }
 
@@ -311,11 +475,22 @@ function syncOutputs(): void {
 
 let timer: ReturnType<typeof setTimeout> | undefined;
 
+// Sur `input` et non `change` : l'écouteur du formulaire, un cran au-dessus
+// dans la remontée de l'événement, resynchronise la galerie d'après les
+// champs. Il doit donc les trouver déjà remplis, sinon il reconnaît l'ancien
+// préréglage et décoche celui qu'on vient de choisir.
+ui.presets.addEventListener("input", (event) => {
+  const input = event.target;
+  if (input instanceof HTMLInputElement) applyPreset(input.value as PresetName);
+});
+
 ui.form.addEventListener("input", () => {
   // Le retour visuel des curseurs et des styles est immédiat ; seul le rendu,
   // qui réencode et reconstruit le SVG, attend une pause dans la saisie.
   syncOutputs();
+  syncPresetSelection();
   showRows(mode());
+  ui.finderShapeRow.hidden = ui.finderMatch.checked;
   ui.pupilRow.hidden = ui.pupilSame.checked;
   refreshPupilPreviews();
   clearTimeout(timer);
@@ -388,8 +563,14 @@ async function loadUpload(file: File): Promise<void> {
   await render();
 }
 
+buildDotShapeGroup(ui.dotShapes, DEFAULT_RENDER_OPTS.dotShape);
 buildShapeGroup(ui.shapes, "finder-shape", DEFAULT_RENDER_OPTS.finderShape);
 buildShapeGroup(ui.pupilShapes, "finder-pupil-shape", DEFAULT_RENDER_OPTS.finderShape);
+// Un QR court sert de modèle aux six vignettes : encodé une fois, rendu six
+// fois avec des apparences différentes. La galerie se construit après les
+// groupes de formes, dont `applyPreset()` coche les boutons.
+buildPresetGallery(ui.presets, buildVariant("https://collecti-frog.fr", 0, 1).modules);
 refreshPupilPreviews();
+syncPresetSelection();
 syncOutputs();
 void render();
