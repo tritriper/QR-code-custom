@@ -13,6 +13,22 @@ export const FINDER_SHAPES = ["square", "rounded", "extra-rounded", "circle", "l
 /** Forme d'un motif de détection : son contour et son centre en ont une chacun. */
 export type FinderShape = (typeof FINDER_SHAPES)[number];
 
+/**
+ * Formes disponibles pour les points. Les quatre premières sont celles des
+ * motifs de détection, au même nom et au même dessin (`baseRadii()`) : c'est
+ * ce qui permet d'assortir points et coins. `diamond` n'existe que pour les
+ * points — un motif de détection en losange ne respecterait plus le rapport
+ * 1:1:3:1:1 attendu par les lecteurs.
+ *
+ * Chaque point est dessiné seul, sans regarder ses voisins : les formes qui
+ * fusionnent les modules contigus (rubans, stries) demanderaient de passer la
+ * matrice à `dot()`, ce qui n'est pas le cas ici.
+ */
+export const DOT_SHAPES = ["circle", "rounded", "extra-rounded", "square", "leaf", "diamond"] as const;
+
+/** Forme d'un point du QR, motifs de détection exclus. */
+export type DotShape = (typeof DOT_SHAPES)[number];
+
 export interface RenderOpts {
   darkColor: string;
   lightColor: string;
@@ -32,8 +48,10 @@ export interface RenderOpts {
   outputPx: number;
   /** Marge silencieuse, en modules. Le standard QR en exige 4 au minimum. */
   quietZone: number;
-  /** Diamètre d'un point, en px. */
+  /** Diamètre d'un point, en px. Pour les formes anguleuses, le côté de son carré englobant. */
   dotPx: number;
+  /** Forme des points, motifs de détection exclus (ils ont la leur). */
+  dotShape: DotShape;
   /** Forme du contour des 3 motifs de détection. */
   finderShape: FinderShape;
   /** Forme du centre des 3 motifs de détection. Par défaut, celle du contour. */
@@ -76,6 +94,7 @@ export const DEFAULT_RENDER_OPTS: RenderOpts = {
   outputPx: 1024,
   quietZone: 1,
   dotPx: 5,
+  dotShape: "circle",
   finderShape: "rounded",
   artworkScale: 1.4,
   artworkThickenPx: 1,
@@ -266,7 +285,28 @@ function lightModules(modules: boolean[][], layout: Layout, opts: RenderOpts): s
 }
 
 function dot(x: number, y: number, layout: Layout, opts: RenderOpts): string {
-  return `<circle cx="${num(centerPx(x, layout, opts))}" cy="${num(centerPx(y, layout, opts))}" r="${num(opts.dotPx / 2)}"/>`;
+  return dotMark(centerPx(x, layout, opts), centerPx(y, layout, opts), opts.dotPx, opts.dotShape);
+}
+
+/** Un point de la forme demandée, centré sur (cx, cy) et inscrit dans un carré de `side`. */
+function dotMark(cx: number, cy: number, side: number, shape: DotShape): string {
+  const half = side / 2;
+  switch (shape) {
+    case "circle":
+      // Gardé comme `<circle>` plutôt que comme un `<rect rx>` de rayon
+      // maximal, pourtant équivalent : c'est la balise la plus courte, et il y
+      // en a une par module sombre (plus de 2000 sur une grille dense).
+      return `<circle cx="${num(cx)}" cy="${num(cy)}" r="${num(half)}"/>`;
+    case "diamond":
+      // Carré tourné d'un quart de tour, inscrit dans le même carré englobant :
+      // ses sommets touchent le milieu des côtés. Il paraît donc plus léger que
+      // les autres formes à `dotPx` égal, ce que le README signale.
+      return `<path d="M${num(cx)} ${num(cy - half)} L${num(cx + half)} ${num(cy)} L${num(cx)} ${num(cy + half)} L${num(cx - half)} ${num(cy)} Z"/>`;
+    default:
+      // Les formes restantes sont celles des motifs de détection, au même
+      // dessin : `finderMark()` choisit seul entre `<rect rx>` et `<path>`.
+      return finderMark(cx - half, cy - half, side, radiiOf(shape, 0));
+  }
 }
 
 function finders(layout: Layout, opts: RenderOpts): string[] {
@@ -391,6 +431,41 @@ export function finderPreviewSvg(ring: FinderShape, pupil: FinderShape, sidePx: 
     `${INDENT}<g fill="currentColor">`,
     `${INDENT}${INDENT}${finderMark(2 * px, 2 * px, 3 * px, radiiOf(pupil, 0))}`,
     `${INDENT}</g>`,
+    `</svg>`,
+  ].join("\n");
+}
+
+/**
+ * Damier servant d'aperçu aux formes de points : un quinconce de 5 points sur
+ * 3 modules, où la forme se lit sans qu'aucun point n'en touche un autre —
+ * ce qui est le cas dans le QR, chaque point étant dessiné indépendamment de
+ * ses voisins. Volontairement grossier : la vignette ne fait que 22 px de
+ * côté, une trame plus fine n'y montrerait plus rien.
+ */
+const DOT_PREVIEW_SIDE = 3;
+
+/**
+ * Un échantillon de points isolé, à l'usage des aperçus de l'app web : même
+ * fonction de dessin que dans le QR, sur une grille de 4 modules ramenée à un
+ * carré de `sidePx` de côté et peinte dans la couleur courante du texte.
+ *
+ * Les points y sont volontairement plus gros que le défaut (0,8 module contre
+ * 0,5) : c'est la forme qui se juge sur une vignette, pas la taille, réglée à
+ * part par `dotPx`.
+ */
+export function dotPreviewSvg(shape: DotShape, sidePx: number): string {
+  const px = sidePx / DOT_PREVIEW_SIDE;
+  const side = num(sidePx);
+  const dots: string[] = [];
+  for (let y = 0; y < DOT_PREVIEW_SIDE; y++) {
+    for (let x = 0; x < DOT_PREVIEW_SIDE; x++) {
+      if ((x + y) % 2 !== 0) continue;
+      dots.push(dotMark((x + 0.5) * px, (y + 0.5) * px, px * 0.8, shape));
+    }
+  }
+  return [
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${side}" height="${side}" viewBox="0 0 ${side} ${side}" aria-hidden="true">`,
+    ...indent(group(`<g fill="currentColor">`, dots), 1),
     `</svg>`,
   ].join("\n");
 }

@@ -100,6 +100,7 @@ On peut combiner plusieurs options dans la même commande.
 | `--out` | Le dossier où enregistrer les fichiers | `dist/` |
 | `--color` | La couleur des points et des coins du QR code (ex. `"#12341f"` pour le vert Collecti'FROG) | noir |
 | `--dot-size` | La taille des points. Les centres des points sont espacés de 10 : en dessous de `5` les points sont fins et aérés, au-delà ils se rapprochent jusqu'à se toucher vers `10` | `5` |
+| `--dot-shape` | La forme des points : `circle` (ronds), `rounded` (arrondis), `extra-rounded` (très arrondis), `square` (carrés), `leaf` (en feuille) ou `diamond` (losanges) | `circle` |
 | `--art` | Le logo à afficher par-dessus le QR code (un fichier `.svg`) | logo grenouille vert |
 | `--art-scale` | La taille du logo, en pourcentage de la zone centrale du QR code | `140` |
 | `--art-color` | La couleur du logo | vert Collecti'FROG |
@@ -125,6 +126,13 @@ npx tsx src/cli.ts --url "https://collecti-frog.fr" --out mon-dossier/ --mask 4
 # Logo plus petit et plus discret
 npx tsx src/cli.ts --url "https://collecti-frog.fr" --art-scale 90 --thicken 0
 
+# Points carrés, aspect sobre
+npx tsx src/cli.ts --url "https://collecti-frog.fr" --dot-shape square
+
+# Points en feuille assortis aux coins, tout en vert Collecti'FROG
+npx tsx src/cli.ts --url "https://collecti-frog.fr" \
+  --dot-shape leaf --finder-shape leaf --color "#12341f"
+
 # Points fins, aspect aéré
 npx tsx src/cli.ts --url "https://collecti-frog.fr" --dot-size 3
 
@@ -145,6 +153,11 @@ npx tsx src/cli.ts --url "https://collecti-frog.fr" \
 npx tsx src/cli.ts --url "https://collecti-frog.fr" \
   --finder-shape leaf --finder-pupil-shape circle
 ```
+
+**À savoir sur les losanges** : un losange est inscrit dans le carré de
+`--dot-size`, il n'en occupe donc que la moitié. À taille égale il paraît plus
+léger que les autres formes, et en dessous de `--dot-size 5` le QR code se
+décode mal une fois imprimé petit — l'outil affiche alors un avertissement.
 
 #### Utiliser un autre logo
 

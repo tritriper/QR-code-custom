@@ -19,7 +19,14 @@ import {
   toUpperUrl,
   type SvgFile,
 } from "./qr.js";
-import { DEFAULT_RENDER_OPTS, FINDER_SHAPES, type FinderShape, type RenderOpts } from "./render.js";
+import {
+  DEFAULT_RENDER_OPTS,
+  DOT_SHAPES,
+  FINDER_SHAPES,
+  type DotShape,
+  type FinderShape,
+  type RenderOpts,
+} from "./render.js";
 
 interface Options {
   url: string;
@@ -36,6 +43,8 @@ interface Options {
   color: string;
   /** Diamètre d'un point, en px, sur une grille au pas de 10. */
   dotSize: number;
+  /** Forme des points, motifs de détection exclus. */
+  dotShape: DotShape;
   /** Version minimale du symbole : plus elle est haute, plus la grille a de points. */
   density: number;
   /** Côté du SVG produit, en px. */
@@ -58,6 +67,12 @@ interface Options {
   centerLogoColor: string | undefined;
 }
 
+/**
+ * Sous cette taille de point, les losanges ne se décodent plus de façon fiable
+ * (voir AGENTS.md). Seuil dupliqué dans `warnings()` de `web/main.ts`.
+ */
+const DIAMOND_MIN_DOT_SIZE = 5;
+
 /** SVG de l'association, à jour dans la charte : trait vert foncé. */
 const DEFAULT_ART = "art/CF-Logo-VertFonce-Trans.svg";
 /** Couleur de l'illustration par défaut : vert foncé de la charte Collecti'FROG. */
@@ -79,6 +94,7 @@ function main(): void {
     ...DEFAULT_RENDER_OPTS,
     darkColor: opts.color,
     dotPx: opts.dotSize,
+    dotShape: opts.dotShape,
     outputPx: opts.size,
     finderShape: opts.finderShape,
     finderPupilShape: opts.finderPupilShape,
@@ -125,6 +141,7 @@ function parseOptions(): Options {
       "art-color": { type: "string", default: DEFAULT_ART_COLOR },
       color: { type: "string", default: DEFAULT_RENDER_OPTS.darkColor },
       "dot-size": { type: "string", default: String(DEFAULT_RENDER_OPTS.dotPx) },
+      "dot-shape": { type: "string", default: DEFAULT_RENDER_OPTS.dotShape },
       density: { type: "string", default: String(MIN_DENSITY) },
       size: { type: "string", default: String(DEFAULT_RENDER_OPTS.outputPx) },
       "finder-shape": { type: "string", default: DEFAULT_RENDER_OPTS.finderShape },
@@ -144,6 +161,7 @@ function parseOptions(): Options {
         '        [--art-scale 140] [--mask 0] [--thicken 1] [--art-color "#12341f"]\n' +
         '        [--color "#000000"] [--dot-size 5] [--no-art]\n' +
         '        [--density 1] [--size 1024]\n' +
+        `        [--dot-shape ${DOT_SHAPES.join("|")}]\n` +
         `        [--finder-shape ${FINDER_SHAPES.join("|")}]\n` +
         '        [--finder-pupil-shape <même liste>] [--finder-color "#000"]\n' +
         '        [--finder-pupil-color "#000"]\n' +
@@ -184,6 +202,21 @@ function parseOptions(): Options {
   const dotSize = number(values["dot-size"], "--dot-size");
   if (dotSize <= 0) {
     throw new Error(`--dot-size doit être strictement positif, reçu "${values["dot-size"]}"`);
+  }
+
+  const dotShape = values["dot-shape"];
+  if (!isDotShape(dotShape)) {
+    throw new Error(`--dot-shape doit valoir ${DOT_SHAPES.join(", ")}, reçu "${dotShape}"`);
+  }
+  // Le losange est inscrit dans le carré de `--dot-size` : il n'en couvre que
+  // la moitié, donc il pose deux fois moins d'encre que les autres formes à
+  // taille égale. Mesuré (voir AGENTS.md) : sous 5, il décroche à basse
+  // résolution là où les autres passent encore.
+  if (dotShape === "diamond" && dotSize < DIAMOND_MIN_DOT_SIZE) {
+    console.warn(
+      `Attention : des losanges à --dot-size ${dotSize} posent peu d'encre et se décodent mal` +
+        ` une fois le QR imprimé petit. Reste au-dessus de ${DIAMOND_MIN_DOT_SIZE}, ou choisis une autre forme.`,
+    );
   }
 
   const density = number(values.density, "--density");
@@ -259,6 +292,7 @@ function parseOptions(): Options {
     artColor,
     color,
     dotSize,
+    dotShape,
     density,
     size,
     finderShape,
@@ -274,6 +308,10 @@ function parseOptions(): Options {
 
 function isFinderShape(value: string): value is FinderShape {
   return (FINDER_SHAPES as readonly string[]).includes(value);
+}
+
+function isDotShape(value: string): value is DotShape {
+  return (DOT_SHAPES as readonly string[]).includes(value);
 }
 
 function isCssColor(value: string): boolean {

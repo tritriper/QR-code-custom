@@ -12,8 +12,11 @@
 import { MASK_COUNT, buildVariant, parseSvg, renderVariant, toUpperUrl, type SvgFile, type Variant } from "../src/qr.js";
 import {
   DEFAULT_RENDER_OPTS,
+  DOT_SHAPES,
   FINDER_SHAPES,
+  dotPreviewSvg,
   finderPreviewSvg,
+  type DotShape,
   type FinderShape,
   type RenderOpts,
 } from "../src/render.js";
@@ -35,8 +38,21 @@ const SHAPE_LABELS: Record<FinderShape, string> = {
   leaf: "Feuille",
 };
 
+/** Libellés des formes de points, pour l'infobulle et les lecteurs d'écran. */
+const DOT_SHAPE_LABELS: Record<DotShape, string> = {
+  circle: "Ronds",
+  rounded: "Arrondis",
+  "extra-rounded": "Très arrondis",
+  square: "Carrés",
+  leaf: "Feuille",
+  diamond: "Losanges",
+};
+
 /** Côté d'un aperçu de forme, en px. */
 const SHAPE_PREVIEW_PX = 22;
+
+/** Sous cette taille de point, les losanges se décodent mal (même seuil que le CLI). */
+const DIAMOND_MIN_DOT_SIZE = 5;
 
 /** Au-delà, le SVG produit devient lourd : le logo y est recopié jusqu'à 3 fois. */
 const HEAVY_LOGO_BYTES = 200_000;
@@ -68,6 +84,7 @@ const ui = {
   form: el<HTMLFormElement>("#controls"),
   url: el<HTMLInputElement>("#url"),
   color: el<HTMLInputElement>("#color"),
+  dotShapes: el<HTMLDivElement>("#dot-shape"),
   shapes: el<HTMLDivElement>("#finder-shape"),
   pupilShapes: el<HTMLDivElement>("#finder-pupil-shape"),
   pupilSame: el<HTMLInputElement>("#pupil-same"),
@@ -102,6 +119,10 @@ function mode(): Mode {
   return (new FormData(ui.form).get("mode") as Mode | null) ?? "art";
 }
 
+function dotShape(): DotShape {
+  return (new FormData(ui.form).get("dot-shape") as DotShape | null) ?? DEFAULT_RENDER_OPTS.dotShape;
+}
+
 function finderShape(): FinderShape {
   return (new FormData(ui.form).get("finder-shape") as FinderShape | null) ?? DEFAULT_RENDER_OPTS.finderShape;
 }
@@ -121,6 +142,7 @@ function renderOpts(logo: SvgFile | null): RenderOpts {
     ...DEFAULT_RENDER_OPTS,
     darkColor: ui.color.value,
     dotPx: Number(ui.dotSize.value),
+    dotShape: dotShape(),
     outputPx: outputPx(),
     finderShape: finderShape(),
     // Case cochée : sans forme propre, le centre des coins suit leur contour.
@@ -154,6 +176,13 @@ function warnings(current: Mode): string[] {
   if (finderShape() === "circle" && !ui.pupilSame.checked && finderPupilShape() !== "circle") {
     list.push(
       "Un contour de coin rond avec un centre d'une autre forme se lit mal : les scanners ratent souvent le QR code. Garde un centre rond, ou choisis un autre contour.",
+    );
+  }
+  // Même seuil que le CLI : le losange est inscrit dans le carré de la taille
+  // demandée, il n'en couvre que la moitié.
+  if (dotShape() === "diamond" && Number(ui.dotSize.value) < DIAMOND_MIN_DOT_SIZE) {
+    list.push(
+      `Des losanges aussi petits posent peu d'encre : le QR code se lira mal une fois imprimé en petit. Monte la taille des points au-dessus de ${DIAMOND_MIN_DOT_SIZE}, ou choisis une autre forme.`,
     );
   }
   if (current !== "none" && upload !== null && upload.bytes > HEAVY_LOGO_BYTES) {
@@ -214,6 +243,31 @@ async function render(): Promise<void> {
   } catch (error) {
     if (token !== renderToken) return;
     show(notes, error instanceof Error ? error.message : String(error));
+  }
+}
+
+/**
+ * Remplit un groupe de boutons radio avec une forme de point par bouton, sur
+ * le même principe que `buildShapeGroup()` : l'aperçu est dessiné par la
+ * fonction de rendu des points elle-même.
+ */
+function buildDotShapeGroup(container: HTMLElement, checked: DotShape): void {
+  for (const shape of DOT_SHAPES) {
+    const label = document.createElement("label");
+    label.title = DOT_SHAPE_LABELS[shape];
+
+    const input = document.createElement("input");
+    input.type = "radio";
+    input.name = "dot-shape";
+    input.value = shape;
+    input.checked = shape === checked;
+    input.setAttribute("aria-label", DOT_SHAPE_LABELS[shape]);
+
+    const preview = document.createElement("span");
+    preview.innerHTML = dotPreviewSvg(shape, SHAPE_PREVIEW_PX);
+
+    label.append(input, preview);
+    container.append(label);
   }
 }
 
@@ -388,6 +442,7 @@ async function loadUpload(file: File): Promise<void> {
   await render();
 }
 
+buildDotShapeGroup(ui.dotShapes, DEFAULT_RENDER_OPTS.dotShape);
 buildShapeGroup(ui.shapes, "finder-shape", DEFAULT_RENDER_OPTS.finderShape);
 buildShapeGroup(ui.pupilShapes, "finder-pupil-shape", DEFAULT_RENDER_OPTS.finderShape);
 refreshPupilPreviews();

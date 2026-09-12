@@ -215,6 +215,10 @@ output {
   grid-template-columns: repeat(5, 1fr);
 }
 
+.segmented.shapes.six {
+  grid-template-columns: repeat(6, 1fr);
+}
+
 /* Les aperçus de forme sont peints en `currentColor` : ils suivent donc la
    couleur du libellé, muette au repos et accentuée une fois sélectionnés. */
 .segmented.shapes span {

@@ -227,6 +227,41 @@ support du raster, style par style.
   n'est pas interdite (le CLI et l'app laissent faire, comme pour
   `--center-logo-scale`), elle déclenche un avertissement dupliqué dans
   `parseOptions()` et `warnings()`. Si la condition bouge, bouger les deux.
+- **Formes des points (`--dot-shape`) : chaque point est dessiné seul.**
+  `dot()` ne reçoit que ses coordonnées, jamais la matrice : les six formes
+  exposées sont donc toutes des formes isolées. Les styles qui fusionnent les
+  modules contigus (rubans « fluides », stries horizontales) demanderaient de
+  passer `modules` à `dot()` — c'est le vrai coût, pas le dessin lui-même.
+  Quatre des six formes (`rounded`, `extra-rounded`, `square`, `leaf`) sont
+  celles des motifs de détection et réutilisent `baseRadii()` via
+  `finderMark()` : c'est ce qui permet d'assortir points et coins, et ça évite
+  deux tables de dessins qui dériveraient. `circle` garde volontairement sa
+  balise `<circle>` plutôt qu'un `<rect rx>` équivalent — c'est la plus courte,
+  et il y en a une par module sombre (plus de 2000 sur une grille dense). La
+  sortie du rendu par défaut est restée **strictement identique** à celle
+  d'avant l'option, vérifié par diff.
+- **`diamond` n'existe que pour les points**, pas pour les coins : un motif de
+  détection en losange ne présenterait plus le rapport 1:1:3:1:1 attendu par
+  les lecteurs. Il est inscrit dans le carré de `dotPx`, donc il ne couvre que
+  la moitié de sa surface — et non mis à l'échelle par √2 pour compenser, ce
+  qui le ferait déborder sur les modules voisins dès `--dot-size` élevé. D'où
+  un avertissement sous `--dot-size 5`, dupliqué dans `parseOptions()` et
+  `warnings()` comme les autres.
+- **Calibration des formes de points** : 6 formes × 8 masques × 4
+  rastérisations (300/400/500/800 px), `rsvg-convert` + `zbarimg`. Tout décode
+  (32/32 par forme) sur : le défaut avec logo intégré, `--dot-size 9`,
+  `--dot-size 4`, une URL longue (version 8) et le logo central à 40 %. Le seul
+  décrochage est à **points fins** : à `--dot-size 3`, `circle` tombe à 23/32,
+  `diamond` à 21/32, `leaf` à 27/32 — mais `circle` est la forme historique et
+  se comportait déjà ainsi, ce n'est donc pas propre aux nouvelles formes ;
+  c'est `--dot-size 3` qui est fragile en soi, toutes formes confondues.
+  `diamond` seul décroche encore à `--dot-size 4` (24/32, tous les échecs à
+  300 px) et passe à 32/32 dès 4,5–5.
+- **`dotPreviewSvg()` vit dans `render.ts`**, pour la même raison que
+  `finderPreviewSvg()` : les vignettes de l'app web sont dessinées par
+  `dotMark()`, la fonction qui dessine réellement les points du QR. Elle affiche
+  un quinconce de 5 points sur 3 modules, à 0,8 module — plus gros que le défaut,
+  parce que c'est la forme qui se juge sur une vignette de 22 px, pas la taille.
 - **`finderPreviewSvg()` vit dans `render.ts`** alors qu'il ne sert qu'à
   l'app web : c'est ce qui garantit que les vignettes des boutons de forme
   sont dessinées par le même code que le QR (même géométrie sur 7 modules),
