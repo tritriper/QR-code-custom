@@ -25,6 +25,14 @@
           </section>
 
           <section class="group">
+            <h2>Apparence</h2>
+            <!-- Galerie construite par main.ts : chaque vignette est un vrai QR
+                 miniature rendu par render.ts avec le préréglage correspondant. -->
+            <div class="segmented inset presets" id="preset" role="radiogroup" aria-label="Apparence"></div>
+            <p class="hint">Un point de départ. Tous les réglages restent modifiables ensuite — la sélection passe alors sur « Perso ».</p>
+          </section>
+
+          <section class="group">
             <h2>Style</h2>
             <div class="segmented inset" role="radiogroup" aria-label="Style du logo">
               <label><input type="radio" name="mode" value="art" checked /><span>Logo intégré</span></label>
@@ -93,7 +101,7 @@
             <p class="hint">Plus la densité est élevée, plus les points sont nombreux et fins. C'est un minimum : une adresse longue en impose parfois plus.</p>
             <div class="field">
               <span class="label">Forme des points</span>
-              <div class="segmented inset shapes six" id="dot-shape" role="radiogroup" aria-label="Forme des points"></div>
+              <div class="segmented inset shapes eight" id="dot-shape" role="radiogroup" aria-label="Forme des points"></div>
             </div>
             <div class="field">
               <span class="label">Forme des coins</span>

@@ -14,10 +14,14 @@ import {
   DEFAULT_RENDER_OPTS,
   DOT_SHAPES,
   FINDER_SHAPES,
+  PRESETS,
+  PRESET_NAMES,
   dotPreviewSvg,
   finderPreviewSvg,
+  presetPreviewSvg,
   type DotShape,
   type FinderShape,
+  type PresetName,
   type RenderOpts,
 } from "../src/render.js";
 
@@ -46,7 +50,22 @@ const DOT_SHAPE_LABELS: Record<DotShape, string> = {
   square: "Carrés",
   leaf: "Feuille",
   diamond: "Losanges",
+  bars: "Stries",
+  connected: "Fluide",
 };
+
+/** Libellés des préréglages, tels qu'ils s'affichent sous chaque vignette. */
+const PRESET_LABELS: Record<PresetName, string> = {
+  classique: "Classique",
+  rond: "Rond",
+  feuille: "Feuille",
+  fluide: "Fluide",
+  stries: "Stries",
+  minimal: "Minimal",
+};
+
+/** Côté d'une vignette de préréglage, en px. */
+const PRESET_PREVIEW_PX = 76;
 
 /** Côté d'un aperçu de forme de coin, en px. */
 const SHAPE_PREVIEW_PX = 22;
@@ -91,6 +110,7 @@ const ui = {
   form: el<HTMLFormElement>("#controls"),
   url: el<HTMLInputElement>("#url"),
   color: el<HTMLInputElement>("#color"),
+  presets: el<HTMLDivElement>("#preset"),
   dotShapes: el<HTMLDivElement>("#dot-shape"),
   shapes: el<HTMLDivElement>("#finder-shape"),
   pupilShapes: el<HTMLDivElement>("#finder-pupil-shape"),
@@ -254,6 +274,68 @@ async function render(): Promise<void> {
 }
 
 /**
+ * Remplit la galerie de préréglages. Chaque vignette est un vrai QR miniature
+ * rendu par `render.ts` : elle ne peut pas diverger de ce que le préréglage
+ * produit réellement.
+ *
+ * La matrice est encodée une seule fois et partagée par les six vignettes —
+ * c'est le même contenu, seule l'apparence change.
+ */
+function buildPresetGallery(container: HTMLElement, modules: boolean[][]): void {
+  for (const name of PRESET_NAMES) {
+    const label = document.createElement("label");
+
+    const input = document.createElement("input");
+    input.type = "radio";
+    input.name = "preset";
+    input.value = name;
+    input.setAttribute("aria-label", PRESET_LABELS[name]);
+
+    const preview = document.createElement("span");
+    preview.innerHTML = `${presetPreviewSvg(modules, name, PRESET_PREVIEW_PX)}<em>${PRESET_LABELS[name]}</em>`;
+
+    label.append(input, preview);
+    container.append(label);
+  }
+}
+
+/**
+ * Recopie un préréglage dans les contrôles du formulaire. Les préréglages ne
+ * sont volontairement pas un état à part : ils écrivent dans les champs, qui
+ * restent l'unique source de vérité lue par `renderOpts()`.
+ */
+function applyPreset(name: PresetName): void {
+  const preset = PRESETS[name];
+  ui.dotSize.value = String(preset.dotPx);
+  check(ui.dotShapes, preset.dotShape);
+  check(ui.shapes, preset.finderShape);
+}
+
+function check(container: HTMLElement, value: string): void {
+  for (const input of container.querySelectorAll<HTMLInputElement>("input")) {
+    input.checked = input.value === value;
+  }
+}
+
+/**
+ * Sélectionne le préréglage qui correspond aux réglages courants, ou aucun
+ * (« Perso ») s'ils n'en décrivent plus un. Déduit du formulaire à chaque
+ * changement plutôt que mémorisé : toucher un curseur suffit alors à sortir du
+ * préréglage, sans que rien n'ait à le signaler.
+ */
+function syncPresetSelection(): void {
+  const current = PRESET_NAMES.find(
+    (name) =>
+      PRESETS[name].dotShape === dotShape() &&
+      PRESETS[name].finderShape === finderShape() &&
+      PRESETS[name].dotPx === Number(ui.dotSize.value),
+  );
+  for (const input of ui.presets.querySelectorAll<HTMLInputElement>("input")) {
+    input.checked = input.value === current;
+  }
+}
+
+/**
  * Remplit un groupe de boutons radio avec une forme de point par bouton, sur
  * le même principe que `buildShapeGroup()` : l'aperçu est dessiné par la
  * fonction de rendu des points elle-même.
@@ -372,10 +454,20 @@ function syncOutputs(): void {
 
 let timer: ReturnType<typeof setTimeout> | undefined;
 
+// Sur `input` et non `change` : l'écouteur du formulaire, un cran au-dessus
+// dans la remontée de l'événement, resynchronise la galerie d'après les
+// champs. Il doit donc les trouver déjà remplis, sinon il reconnaît l'ancien
+// préréglage et décoche celui qu'on vient de choisir.
+ui.presets.addEventListener("input", (event) => {
+  const input = event.target;
+  if (input instanceof HTMLInputElement) applyPreset(input.value as PresetName);
+});
+
 ui.form.addEventListener("input", () => {
   // Le retour visuel des curseurs et des styles est immédiat ; seul le rendu,
   // qui réencode et reconstruit le SVG, attend une pause dans la saisie.
   syncOutputs();
+  syncPresetSelection();
   showRows(mode());
   ui.pupilRow.hidden = ui.pupilSame.checked;
   refreshPupilPreviews();
@@ -452,6 +544,11 @@ async function loadUpload(file: File): Promise<void> {
 buildDotShapeGroup(ui.dotShapes, DEFAULT_RENDER_OPTS.dotShape);
 buildShapeGroup(ui.shapes, "finder-shape", DEFAULT_RENDER_OPTS.finderShape);
 buildShapeGroup(ui.pupilShapes, "finder-pupil-shape", DEFAULT_RENDER_OPTS.finderShape);
+// Un QR court sert de modèle aux six vignettes : encodé une fois, rendu six
+// fois avec des apparences différentes. La galerie se construit après les
+// groupes de formes, dont `applyPreset()` coche les boutons.
+buildPresetGallery(ui.presets, buildVariant("https://collecti-frog.fr", 0, 1).modules);
 refreshPupilPreviews();
+syncPresetSelection();
 syncOutputs();
 void render();

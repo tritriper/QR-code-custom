@@ -23,8 +23,11 @@ import {
   DEFAULT_RENDER_OPTS,
   DOT_SHAPES,
   FINDER_SHAPES,
+  PRESETS,
+  PRESET_NAMES,
   type DotShape,
   type FinderShape,
+  type PresetName,
   type RenderOpts,
 } from "./render.js";
 
@@ -45,6 +48,8 @@ interface Options {
   dotSize: number;
   /** Forme des points, motifs de détection exclus. */
   dotShape: DotShape;
+  /** Préréglage d'apparence appliqué, ou undefined si aucun. */
+  preset: PresetName | undefined;
   /** Version minimale du symbole : plus elle est haute, plus la grille a de points. */
   density: number;
   /** Côté du SVG produit, en px. */
@@ -90,13 +95,19 @@ function main(): void {
     for (const warning of upper.warnings) console.warn(`Attention : ${warning}`);
   }
 
+  // Le préréglage se glisse entre les défauts et les options explicites : il
+  // ne touche qu'aux réglages laissés au défaut (voir `wasGiven`).
+  const preset: Partial<RenderOpts> = opts.preset === undefined ? {} : PRESETS[opts.preset];
   const renderOpts: RenderOpts = {
     ...DEFAULT_RENDER_OPTS,
+    ...preset,
     darkColor: opts.color,
-    dotPx: opts.dotSize,
-    dotShape: opts.dotShape,
+    dotPx: wasGiven("dot-size") ? opts.dotSize : (preset.dotPx ?? DEFAULT_RENDER_OPTS.dotPx),
+    dotShape: wasGiven("dot-shape") ? opts.dotShape : (preset.dotShape ?? DEFAULT_RENDER_OPTS.dotShape),
     outputPx: opts.size,
-    finderShape: opts.finderShape,
+    finderShape: wasGiven("finder-shape")
+      ? opts.finderShape
+      : (preset.finderShape ?? DEFAULT_RENDER_OPTS.finderShape),
     finderPupilShape: opts.finderPupilShape,
     finderColor: opts.finderColor,
     finderPupilColor: opts.finderPupilColor,
@@ -142,6 +153,7 @@ function parseOptions(): Options {
       color: { type: "string", default: DEFAULT_RENDER_OPTS.darkColor },
       "dot-size": { type: "string", default: String(DEFAULT_RENDER_OPTS.dotPx) },
       "dot-shape": { type: "string", default: DEFAULT_RENDER_OPTS.dotShape },
+      preset: { type: "string" },
       density: { type: "string", default: String(MIN_DENSITY) },
       size: { type: "string", default: String(DEFAULT_RENDER_OPTS.outputPx) },
       "finder-shape": { type: "string", default: DEFAULT_RENDER_OPTS.finderShape },
@@ -161,6 +173,7 @@ function parseOptions(): Options {
         '        [--art-scale 140] [--mask 0] [--thicken 1] [--art-color "#12341f"]\n' +
         '        [--color "#000000"] [--dot-size 5] [--no-art]\n' +
         '        [--density 1] [--size 1024]\n' +
+        `        [--preset ${PRESET_NAMES.join("|")}]\n` +
         `        [--dot-shape ${DOT_SHAPES.join("|")}]\n` +
         `        [--finder-shape ${FINDER_SHAPES.join("|")}]\n` +
         '        [--finder-pupil-shape <même liste>] [--finder-color "#000"]\n' +
@@ -202,6 +215,11 @@ function parseOptions(): Options {
   const dotSize = number(values["dot-size"], "--dot-size");
   if (dotSize <= 0) {
     throw new Error(`--dot-size doit être strictement positif, reçu "${values["dot-size"]}"`);
+  }
+
+  const preset = values.preset;
+  if (preset !== undefined && !isPresetName(preset)) {
+    throw new Error(`--preset doit valoir ${PRESET_NAMES.join(", ")}, reçu "${preset}"`);
   }
 
   const dotShape = values["dot-shape"];
@@ -293,6 +311,7 @@ function parseOptions(): Options {
     color,
     dotSize,
     dotShape,
+    preset,
     density,
     size,
     finderShape,
@@ -312,6 +331,20 @@ function isFinderShape(value: string): value is FinderShape {
 
 function isDotShape(value: string): value is DotShape {
   return (DOT_SHAPES as readonly string[]).includes(value);
+}
+
+function isPresetName(value: string): value is PresetName {
+  return (PRESET_NAMES as readonly string[]).includes(value);
+}
+
+/**
+ * Vrai si l'option a été tapée sur la ligne de commande. `parseArgs` ne le dit
+ * pas — une option absente y prend sa valeur par défaut, indiscernable d'une
+ * valeur choisie — et c'est nécessaire ici pour que `--preset` s'applique aux
+ * réglages laissés au défaut sans écraser ceux qu'on a explicitement demandés.
+ */
+function wasGiven(flag: string): boolean {
+  return process.argv.slice(2).some((arg) => arg === `--${flag}` || arg.startsWith(`--${flag}=`));
 }
 
 function isCssColor(value: string): boolean {

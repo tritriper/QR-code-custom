@@ -240,6 +240,23 @@ support du raster, style par style.
   et il y en a une par module sombre (plus de 2000 sur une grille dense). La
   sortie du rendu par défaut est restée **strictement identique** à celle
   d'avant l'option, vérifié par diff.
+- **Formes connectées (`bars`, `connected`) : souder d'après ce qui est
+  dessiné, pas d'après la matrice.** `darkModules()` saute les modules des
+  motifs de détection et ceux de la réserve du logo central ; un trait qui les
+  prendrait pour voisins déborderait dans une zone censée rester vide. D'où la
+  grille `Drawn`, construite par `drawnGrid()` dans chaque groupe et passée à
+  `dotMarks()` — `lightModules()` a la sienne, différente. Ne pas revenir à la
+  matrice brute.
+  Les deux gardent `dotPx` comme **épaisseur** du tracé, ce qui laisse
+  `--dot-size` utile (à 10 le trait est plein, en dessous c'est un chapelet de
+  points reliés) et évite d'avoir à masquer le réglage dans l'app. `bars` émet
+  une capsule par suite horizontale — plus court que un tracé par module, et
+  c'est aussi ce qui donne des bouts franchement arrondis plutôt qu'une
+  succession de bosses ; `connected` émet un rond par module plus une liaison
+  vers la droite et vers le bas, volontairement en recouvrement avec les ronds
+  qu'elles relient (des segments bout à bout laisseraient une arête visible).
+  Conséquence assumée : `connected` produit le fichier le plus lourd des huit
+  formes, environ 1,7 fois un QR à points ronds.
 - **`diamond` n'existe que pour les points**, pas pour les coins : un motif de
   détection en losange ne présenterait plus le rapport 1:1:3:1:1 attendu par
   les lecteurs. Il est inscrit dans le carré de `dotPx`, donc il ne couvre que
@@ -305,6 +322,43 @@ support du raster, style par style.
   les deux ont été découplés intentionnellement. Si `--art-color` dérivait
   de `--color` (comme c'était le cas dans une version antérieure), changer la
   couleur des modules changerait aussi celle du logo sans le vouloir.
+
+### Préréglages (`PRESETS`, `--preset`, galerie web)
+
+`PRESETS` vit dans `render.ts` et est la **seule** définition des six
+apparences : le CLI l'applique dans `main()`, l'app web y construit sa galerie
+et s'en sert pour reconnaître le préréglage courant. Ajouter une apparence =
+une entrée dans `PRESETS` + son libellé dans `PRESET_LABELS` (`web/main.ts`) ;
+tout le reste en découle, y compris les messages d'erreur du CLI.
+
+- **Aucun préréglage ne fixe de couleur**, alors que « Feuille » y inviterait
+  (le vert de la charte). C'est une règle d'interface : changer de style ne
+  doit jamais écraser une couleur qu'on vient de choisir. Même raison pour le
+  logo, absent des préréglages — il est réglé par le choix à trois positions.
+- **Un préréglage n'est pas un état.** `applyPreset()` écrit dans les contrôles
+  du formulaire, qui restent l'unique source de vérité lue par `renderOpts()` ;
+  `syncPresetSelection()` relit ces mêmes contrôles pour recocher la bonne
+  vignette, ou aucune (« Perso »). Rien à synchroniser, conformément à la règle
+  générale de l'app. Ne pas introduire de variable de module pour ça.
+- **L'écouteur de la galerie est sur `input`, pas `change`.** Celui du
+  formulaire, un cran au-dessus dans la remontée de l'événement, resynchronise
+  la galerie d'après les champs : il doit les trouver déjà remplis. Avec
+  `change`, il s'exécutait le premier, reconnaissait l'ancien préréglage et
+  décochait celui qu'on venait de choisir — vu à l'écran avant correction.
+- **Côté CLI, `wasGiven()` lit `process.argv`** parce que `parseArgs` ne
+  distingue pas une option absente d'une option écrite à sa valeur par défaut.
+  C'est ce qui permet à `--preset` de ne toucher qu'aux réglages laissés au
+  défaut. Si un réglage entre un jour dans `PRESETS`, l'ajouter aussi à la
+  liste des `wasGiven()` de `main()`, sinon le préréglage l'écrasera toujours.
+- **`minimal` n'est pas aussi fin que son nom l'indique**, et c'est mesuré :
+  des points ronds à 3,5 ne décodent que 20/32, et un contour de coin rond
+  aggrave (24/32 même à 4). Le préréglage est donc à points 4 + coins arrondis,
+  la combinaison la plus aérée qui passe partout. Ne pas l'affiner sans
+  refaire le protocole.
+- **Les six préréglages sont validés 32/32** (8 masques × 300/400/500/800 px).
+  Tout changement d'une de leurs valeurs demande de refaire ce test : ce sont
+  les apparences que les utilisateurs choisiront le plus, elles ne peuvent pas
+  être les moins fiables.
 
 ## Vérifier qu'un changement de rendu ne casse rien
 

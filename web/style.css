@@ -215,8 +215,29 @@ output {
   grid-template-columns: repeat(5, 1fr);
 }
 
-.segmented.shapes.six {
-  grid-template-columns: repeat(6, 1fr);
+/* Huit formes de points : deux rangées de quatre. Sur une seule rangée,
+   chaque bouton tomberait sous 40 px de large et la vignette n'y tiendrait
+   plus — c'est précisément ce qui rendait les premières illisibles. */
+.segmented.shapes.eight {
+  grid-template-columns: repeat(4, 1fr);
+}
+
+/* La galerie de préréglages : trois colonnes, chaque vignette étant un QR
+   miniature qui a besoin de place pour rester lisible. */
+.segmented.presets {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.segmented.presets span {
+  padding: 10px 4px 8px;
+}
+
+.segmented.presets em {
+  display: block;
+  margin-top: 7px;
+  font-style: normal;
+  font-size: 0.76rem;
+  font-weight: 600;
 }
 
 /* Les aperçus de forme sont peints en `currentColor` : ils suivent donc la

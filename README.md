@@ -100,7 +100,8 @@ On peut combiner plusieurs options dans la même commande.
 | `--out` | Le dossier où enregistrer les fichiers | `dist/` |
 | `--color` | La couleur des points et des coins du QR code (ex. `"#12341f"` pour le vert Collecti'FROG) | noir |
 | `--dot-size` | La taille des points. Les centres des points sont espacés de 10 : en dessous de `5` les points sont fins et aérés, au-delà ils se rapprochent jusqu'à se toucher vers `10` | `5` |
-| `--dot-shape` | La forme des points : `circle` (ronds), `rounded` (arrondis), `extra-rounded` (très arrondis), `square` (carrés), `leaf` (en feuille) ou `diamond` (losanges) | `circle` |
+| `--preset` | Une apparence toute prête : `classique`, `rond`, `feuille`, `fluide`, `stries` ou `minimal`. Règle d'un coup la forme des points, celle des coins et leur taille. N'importe laquelle de ces trois options, écrite en plus, reprend la main sur le préréglage | aucun |
+| `--dot-shape` | La forme des points : `circle` (ronds), `rounded` (arrondis), `extra-rounded` (très arrondis), `square` (carrés), `leaf` (en feuille), `diamond` (losanges), `bars` (stries : les points voisins d'une même ligne se soudent en bâtonnets) ou `connected` (fluide : les points voisins se soudent dans les deux sens) | `circle` |
 | `--art` | Le logo à afficher par-dessus le QR code (un fichier `.svg`) | logo grenouille vert |
 | `--art-scale` | La taille du logo, en pourcentage de la zone centrale du QR code | `140` |
 | `--art-color` | La couleur du logo | vert Collecti'FROG |
@@ -125,6 +126,12 @@ npx tsx src/cli.ts --url "https://collecti-frog.fr" --out mon-dossier/ --mask 4
 
 # Logo plus petit et plus discret
 npx tsx src/cli.ts --url "https://collecti-frog.fr" --art-scale 90 --thicken 0
+
+# Une apparence toute prête
+npx tsx src/cli.ts --url "https://collecti-frog.fr" --preset feuille
+
+# La même, mais avec des points plus gros que ce que le préréglage prévoit
+npx tsx src/cli.ts --url "https://collecti-frog.fr" --preset stries --dot-size 9
 
 # Points carrés, aspect sobre
 npx tsx src/cli.ts --url "https://collecti-frog.fr" --dot-shape square
@@ -153,6 +160,12 @@ npx tsx src/cli.ts --url "https://collecti-frog.fr" \
 npx tsx src/cli.ts --url "https://collecti-frog.fr" \
   --finder-shape leaf --finder-pupil-shape circle
 ```
+
+**À savoir sur `bars` et `connected`** : ces deux formes soudent les points
+voisins. `--dot-size` y règle alors l'épaisseur du trait — à `10` le tracé est
+plein, en dessous on obtient un chapelet de points reliés. C'est aussi avec
+`connected` que le fichier produit est le plus lourd (environ 1,7 fois un QR
+à points ronds), chaque liaison étant un tracé de plus.
 
 **À savoir sur les losanges** : un losange est inscrit dans le carré de
 `--dot-size`, il n'en occupe donc que la moitié. À taille égale il paraît plus
